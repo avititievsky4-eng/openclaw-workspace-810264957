@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import random
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+
+from scapy.all import Ether, IP, SCTP, SCTPChunkData, wrpcap  # type: ignore
+
+
+def build_pcap(path: str, dst: str, sport: int, dport: int, payload: int, count: int):
+    pkts = []
+    data = b'X' * payload
+    rnd = random.Random(1234)
+    for _ in range(count):
+        tag = rnd.randint(1, 2**32 - 1)
+        # Ethernet framing so tcpreplay can transmit on non-loopback NICs.
+        pkts.append(Ether(dst='ff:ff:ff:ff:ff:ff')/IP(dst=dst)/SCTP(sport=sport, dport=dport, tag=tag)/SCTPChunkData(data=data))
+    wrpcap(path, pkts)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--dst', default='127.0.0.1')
+    ap.add_argument('--sport', type=int, default=2905)
+    ap.add_argument('--dport', type=int, default=2905)
+    ap.add_argument('--duration', type=float, default=3.0)
+    ap.add_argument('--payload', type=int, default=64)
+    ap.add_argument('--threads', type=int, default=1)
+    ap.add_argument('--iface', default='lo')
+    ap.add_argument('--pcap-packets', type=int, default=2000)
+    args = ap.parse_args()
+
+    cache_dir = Path('/tmp/sctp_replay_cache')
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    pcap_path = cache_dir / f'sctp_{args.payload}_{args.pcap_packets}.pcap'
+
+    if not pcap_path.exists():
+        build_pcap(str(pcap_path), args.dst, args.sport, args.dport, args.payload, args.pcap_packets)
+
+    cmd = [
+        'tcpreplay', '--intf1', args.iface, '--topspeed',
+        '--loop', '999999', '--duration', str(max(1, int(args.duration))),
+        str(pcap_path)
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    text = (proc.stdout or '') + '\n' + (proc.stderr or '')
+
+    sent = 0
+    m = re.search(r'Actual:\s*(\d+)\s+packets', text)
+    if m:
+        sent = int(m.group(1))
+    else:
+        m2 = re.search(r'(\d+)\s+packets sent', text)
+        if m2:
+            sent = int(m2.group(1))
+
+    print(json.dumps({'sent': sent, 'generator': 'tcpreplay'}))
+
+
+if __name__ == '__main__':
+    main()
