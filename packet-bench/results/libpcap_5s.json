@@ -1,0 +1,13 @@
+{
+  "tool": "libpcap(pcapy-ng)",
+  "iface": "lo",
+  "duration_s": 5.0,
+  "payload_bytes": 64,
+  "sent": 1583343,
+  "captured": 0,
+  "loss": 1583343,
+  "capture_ratio": 0.0,
+  "send_pps": 316668.6,
+  "captured_pps": 0.0,
+  "elapsed_s": 15.261484051006846
+}
