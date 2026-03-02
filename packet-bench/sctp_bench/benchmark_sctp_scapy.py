@@ -5,7 +5,7 @@ import queue
 import subprocess
 import threading
 import time
-from scapy.all import sniff  # type: ignore
+from scapy.all import sniff, get_if_list  # type: ignore
 
 
 def main():
@@ -33,10 +33,19 @@ def main():
         except queue.Full:
             dropped += 1
 
+    # Scapy can't sniff on iface='any'. emulate by sniffing on existing concrete ifaces.
+    if args.iface == 'any':
+        available = set(get_if_list())
+        capture_iface = [i for i in ('eth0', 'lo') if i in available]
+        if not capture_iface:
+            capture_iface = list(available)[:1]
+    else:
+        capture_iface = args.iface
+
     def producer():
         nonlocal producer_done
         try:
-            sniff(iface=args.iface, filter='sctp', prn=on_pkt, store=False, timeout=args.duration + 1.5)
+            sniff(iface=capture_iface, filter='sctp', prn=on_pkt, store=False, timeout=args.duration + 1.5)
         finally:
             producer_done = True
 
