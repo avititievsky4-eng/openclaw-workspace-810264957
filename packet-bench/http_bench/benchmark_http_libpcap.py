@@ -64,9 +64,11 @@ def main():
     seen_get_ids = set()
     seen_resp_markers = set()
     stop = False
+    producer_done = False
 
     captured_packets_total = 0
     enqueued_packets = 0
+    handled_packets = 0
     dropped_queue = 0
 
     # Reassembly buffers per flow direction
@@ -74,7 +76,7 @@ def main():
     resp_streams = {}
 
     def producer():
-        nonlocal captured_packets_total, enqueued_packets, dropped_queue
+        nonlocal captured_packets_total, enqueued_packets, dropped_queue, producer_done
 
         def cb(_hdr, data):
             nonlocal captured_packets_total, enqueued_packets, dropped_queue
@@ -89,13 +91,19 @@ def main():
                     enqueued_packets += 1
                     cv.notify()
 
-        while not stop:
-            try:
-                cap.dispatch(8192, cb)
-            except Exception:
-                pass
+        try:
+            while not stop:
+                try:
+                    cap.dispatch(8192, cb)
+                except Exception:
+                    pass
+        finally:
+            producer_done = True
+            with cv:
+                cv.notify_all()
 
     seen_lock = threading.Lock()
+    handled_lock = threading.Lock()
 
     def consume_http_from_buffer(buf: bytes, is_request: bool):
         ids = set()
@@ -108,19 +116,23 @@ def main():
         return ids, resp_cnt
 
     def consumer():
+        nonlocal handled_packets
         local_get = set()
         local_resp_markers = set()
+        local_handled = 0
 
         while True:
             with cv:
-                while not dq and not stop:
+                while not dq and not (stop and producer_done):
                     cv.wait(timeout=0.05)
-                if not dq and stop:
+                if not dq and stop and producer_done:
                     break
                 frame = dq.popleft() if dq else None
 
             if not frame:
                 continue
+
+            local_handled += 1
 
             parsed = parse_ipv4_tcp(frame)
             if not parsed:
@@ -153,6 +165,9 @@ def main():
                     b = b[-2048:]
                 resp_streams[key] = b
 
+        with handled_lock:
+            handled_packets += local_handled
+
         if local_get or local_resp_markers:
             with seen_lock:
                 seen_get_ids.update(local_get)
@@ -167,15 +182,29 @@ def main():
 
     time.sleep(0.25)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
-    time.sleep(0.5)
 
+    # Stop producer first, then wait until queue is fully drained and handled.
     stop = True
     with cv:
         cv.notify_all()
 
-    pth.join(timeout=2)
+    pth.join(timeout=5)
+
+    drain_deadline = time.perf_counter() + 10.0
+    while time.perf_counter() < drain_deadline:
+        with cv:
+            qlen = len(dq)
+        with handled_lock:
+            handled_now = handled_packets
+        if producer_done and qlen == 0 and handled_now >= enqueued_packets:
+            break
+        time.sleep(0.01)
+
+    with cv:
+        cv.notify_all()
+
     for c in consumers:
-        c.join(timeout=3)
+        c.join(timeout=5)
 
     t1 = time.perf_counter()
     server.shutdown()
@@ -188,6 +217,8 @@ def main():
         'requests_ok': requests_ok,
         'captured_packets_total': captured_packets_total,
         'enqueued_packets': enqueued_packets,
+        'handled_packets': handled_packets,
+        'unhandled_packets': max(0, enqueued_packets - handled_packets),
         'capture_drop_queue': dropped_queue,
         'http_get_seen': len(seen_get_ids),
         'http_200_seen': http_200_seen,
