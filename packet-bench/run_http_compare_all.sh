@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DURATION="${1:-8}"
+WORKERS="${2:-4}"
+PORT=18080
+BASE="$(dirname "$0")"
+OUTDIR="$BASE/results"
+mkdir -p "$OUTDIR"
+
+run_json () {
+  local name="$1"
+  shift
+  local out="$OUTDIR/http_${name}_${DURATION}s.json"
+  echo "[+] Running $name HTTP-session benchmark..." >&2
+  echo 'aviavi11' | sudo -S "$@" > "$out"
+  echo "$out"
+}
+
+SCAPY_JSON=$(run_json scapy "$BASE/scapy_project/.venv312/bin/python" "$BASE/http_bench/benchmark_http_scapy.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
+LIBPCAP_JSON=$(run_json libpcap "$BASE/libpcap_project/.venv312/bin/python" "$BASE/http_bench/benchmark_http_libpcap.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
+TCPDUMP_JSON=$(run_json tcpdump python3 "$BASE/http_bench/benchmark_http_tcpdump.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
+RAWSOCK_JSON=$(run_json rawsocket python3 "$BASE/http_bench/benchmark_http_rawsocket.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
+EBPF_JSON=$(run_json ebpf python3 "$BASE/http_bench/benchmark_http_ebpf.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
+
+SCAPY_JSON="$SCAPY_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" EBPF_JSON="$EBPF_JSON" python3 - <<'PY'
+import json, os
+files=[os.environ['SCAPY_JSON'],os.environ['LIBPCAP_JSON'],os.environ['TCPDUMP_JSON'],os.environ['RAWSOCK_JSON'],os.environ['EBPF_JSON']]
+rows=[json.load(open(p)) for p in files]
+rows_l7=[r for r in rows if 'http_get_seen' in r]
+rows_l7.sort(key=lambda r:r['http_get_seen'], reverse=True)
+print('\n=== HTTP session parse results (L7 where available) ===')
+for r in rows:
+    if 'http_get_seen' in r:
+        print(f"{r['tool']}: req_ok={r['requests_ok']:,} GET_seen={r['http_get_seen']:,} 200_seen={r['http_200_seen']:,} GET_ratio={r['get_seen_ratio']:.2%}")
+    else:
+        print(f"{r['tool']}: req_ok={r['requests_ok']:,} sessions={r['http_sessions_established']:,} ratio={r['session_to_request_ratio']:.2%}")
+if rows_l7:
+    print('\nWinner by HTTP GET parsed:', rows_l7[0]['tool'])
+PY
+
+echo "\nSaved JSON results in: $OUTDIR"
