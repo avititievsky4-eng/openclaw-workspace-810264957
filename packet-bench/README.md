@@ -40,13 +40,14 @@ Generators:
 Run (default):
 ```bash
 cd packet-bench
-./run_sctp_compare_all.sh 10 1024 16
+sudo ./run_sctp_compare_all.sh 10 1024 16
 ```
 - arg1 = duration (seconds)
 - arg2 = payload bytes
 - arg3 = generator threads
 - arg4 = iface (optional, default `eth0`)
 - arg5 = generator PPS (optional, default `0` = topspeed)
+- arg6 = destination IP (optional). If omitted and iface != `lo`, runner auto-detects iface IPv4.
 
 Example with fixed rate (the “~half Scapy” scenario):
 ```bash
