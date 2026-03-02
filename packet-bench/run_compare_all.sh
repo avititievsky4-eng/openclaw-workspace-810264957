@@ -12,7 +12,7 @@ run_json () {
   local name="$1"
   shift
   local out="$OUTDIR/${name}_${DURATION}s.json"
-  echo "[+] Running $name benchmark..."
+  echo "[+] Running $name benchmark..." >&2
   echo 'aviavi11' | sudo -S "$@" > "$out"
   echo "$out"
 }
@@ -22,24 +22,17 @@ LIBPCAP_JSON=$(run_json libpcap "$BASE/libpcap_project/.venv312/bin/python" "$BA
 TCPDUMP_JSON=$(run_json tcpdump python3 "$BASE/tcpdump_project/benchmark_tcpdump.py" --duration "$DURATION" --payload "$PAYLOAD" --port "$PORT")
 RAWSOCK_JSON=$(run_json rawsocket python3 "$BASE/rawsocket_project/benchmark_rawsocket.py" --duration "$DURATION" --payload "$PAYLOAD" --port "$PORT")
 
-python3 - <<'PY'
-import glob, json, os
-files = sorted(glob.glob('packet-bench/results/*_5s.json'))
-# if different duration passed, just pick newest per tool
-by_tool = {}
-for p in glob.glob('packet-bench/results/*.json'):
-    try:
-        j = json.load(open(p))
-        by_tool[j['tool']] = (p,j)
-    except Exception:
-        pass
-rows = [v[1] for v in by_tool.values()]
+SCAPY_JSON="$SCAPY_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" python3 - <<'PY'
+import json, os
+files = [os.environ['SCAPY_JSON'], os.environ['LIBPCAP_JSON'], os.environ['TCPDUMP_JSON'], os.environ['RAWSOCK_JSON']]
+rows = []
+for p in files:
+    rows.append(json.load(open(p)))
 rows.sort(key=lambda r: r['captured'], reverse=True)
 print('\n=== RESULTS (all methods) ===')
 for r in rows:
     print(f"{r['tool']}: captured={r['captured']:,} sent={r['sent']:,} ratio={r['capture_ratio']:.2%} captured_pps={r['captured_pps']:.0f}")
-if rows:
-    print('\nWinner by captured packets:', rows[0]['tool'])
+print('\nWinner by captured packets:', rows[0]['tool'])
 PY
 
 echo "\nSaved JSON results in: $OUTDIR"

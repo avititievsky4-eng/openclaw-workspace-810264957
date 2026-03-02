@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
+import signal
 import socket
 import subprocess
 import time
@@ -27,23 +29,27 @@ def main():
     args = ap.parse_args()
 
     filt = f"udp dst port {args.port}"
-    cmd = ["tcpdump", "-i", args.iface, "-n", "-q", filt]
+    # Write packets to /dev/null to avoid stdout bottleneck; parse summary from stderr.
+    cmd = ["tcpdump", "-i", args.iface, "-n", "-q", "-w", "/dev/null", filt]
 
     t0 = time.perf_counter()
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    time.sleep(0.25)
+    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    time.sleep(0.3)
     sent = send_packets("127.0.0.1", args.port, args.duration, args.payload)
-    time.sleep(0.4)
-    p.terminate()
+    time.sleep(0.5)
 
-    out = ""
+    p.send_signal(signal.SIGINT)
     try:
-        out, _ = p.communicate(timeout=3)
+        _out, err = p.communicate(timeout=5)
     except subprocess.TimeoutExpired:
         p.kill()
-        out, _ = p.communicate()
+        _out, err = p.communicate()
 
-    captured = len([ln for ln in out.splitlines() if ln.strip()])
+    captured = 0
+    m = re.search(r"(\d+)\s+packets captured", err or "")
+    if m:
+        captured = int(m.group(1))
+
     t1 = time.perf_counter()
 
     loss = max(0, sent - captured)
