@@ -1,9 +1,12 @@
-# HTTP Benchmark Suite
+# Packet Bench (HTTP + SCTP)
 
-This repository is now focused on **HTTP/session benchmarking only**.
+This repo contains benchmark suites for:
+- **HTTP/session parsing**
+- **SCTP packet capture**
 
-## Included methods
+## HTTP suite
 
+Methods:
 - `http_bench/benchmark_http_scapy.py`
 - `http_bench/benchmark_http_libpcap.py`
 - `http_bench/benchmark_http_tcpdump.py`
@@ -12,29 +15,45 @@ This repository is now focused on **HTTP/session benchmarking only**.
 - `http_bench/benchmark_http_pypcap.py`
 - `http_bench/benchmark_http_ebpf.py`
 
-Shared helper:
-- `http_bench/common_http.py`
-
-Runner:
-- `run_http_compare_all.sh`
-- `run_sctp_compare_all.sh`
-
-Results summaries:
-- `results/latest-http-summary.md`
-- `results/graded-load-summary.md`
-
-## Run
-
+Run:
 ```bash
 cd packet-bench
 ./run_http_compare_all.sh 6 8
 ```
+- arg1 = duration (seconds)
+- arg2 = workers
 
-Arguments:
-- first arg: duration in seconds
-- second arg: worker count
+## SCTP suite
+
+Methods:
+- `sctp_bench/benchmark_sctp_scapy.py`
+- `sctp_bench/benchmark_sctp_tcpdump.py`
+- `sctp_bench/benchmark_sctp_libpcap.py`
+- `sctp_bench/benchmark_sctp_pypcap.py`
+- `sctp_bench/benchmark_sctp_rawsocket.py`
+- `sctp_bench/benchmark_sctp_ebpf.py`
+
+Generators:
+- `sctp_bench/generate_sctp_scapy.py`
+- `sctp_bench/generate_sctp_tcpreplay.py`
+
+Run (default):
+```bash
+cd packet-bench
+./run_sctp_compare_all.sh 10 1024 16
+```
+- arg1 = duration (seconds)
+- arg2 = payload bytes
+- arg3 = generator threads
+- arg4 = iface (optional, default `lo`)
+- arg5 = generator PPS (optional, default `0` = topspeed)
+
+Example with fixed rate (the “~half Scapy” scenario):
+```bash
+./run_sctp_compare_all.sh 3 512 1 eth0 10000
+```
 
 ## Notes
-
-- Requires sudo/root for packet capture methods.
-- Uses local benchmark traffic on loopback (`127.0.0.1`).
+- Most methods require `sudo`.
+- Loopback (`lo`) may show packet duplication for raw capture methods; normalized counters are used where relevant.
+- Results are written under `packet-bench/results/`.
