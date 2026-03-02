@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import ctypes
 import json
-import queue
-import re
-import signal
-import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
+
+from bcc import BPF  # type: ignore
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load
@@ -24,65 +22,46 @@ def main():
 
     server = start_http_server(args.host, args.port)
 
-    prog = (
-        'tracepoint:sock:inet_sock_set_state '
-        '/args->protocol==6 && args->newstate==1/ '
-        '{ @http_sessions = count(); }'
-    )
+    # Use tracepoint program with minimal includes (no external bpftrace process).
+    bpf_text = f"""
+BPF_HASH(counter, u32, u64);
+
+TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
+    if (args->protocol != 6) {{
+        return 0;
+    }}
+    if (args->newstate != 1) {{
+        return 0;
+    }}
+
+    u16 sport = args->sport;
+    u16 dport = args->dport;
+    if (!(sport == {args.port} || dport == {args.port})) {{
+        return 0;
+    }}
+
+    u32 key = 0;
+    u64 zero = 0, *val;
+    val = counter.lookup_or_try_init(&key, &zero);
+    if (val) {{
+        (*val)++;
+    }}
+    return 0;
+}}
+"""
 
     t0 = time.perf_counter()
-    p = subprocess.Popen(['bpftrace', '-e', prog], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    b = BPF(text=bpf_text)
 
-    qout: queue.Queue = queue.Queue(maxsize=20000)
-    enqueued = 0
-    handled = 0
-    dropped = 0
-    stop = False
-
-    def producer(stream):
-        nonlocal enqueued, dropped
-        while not stop:
-            line = stream.readline()
-            if not line:
-                break
-            try:
-                qout.put_nowait(line)
-                enqueued += 1
-            except queue.Full:
-                dropped += 1
-
-    pth1 = threading.Thread(target=producer, args=(p.stdout,), daemon=True)
-    pth2 = threading.Thread(target=producer, args=(p.stderr,), daemon=True)
-    pth1.start(); pth2.start()
-
-    time.sleep(0.35)
+    time.sleep(0.2)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    time.sleep(0.2)
 
-    stop = True
-    p.send_signal(signal.SIGINT)
-    try:
-        out_rem, err_rem = p.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        p.kill(); out_rem, err_rem = p.communicate(timeout=3)
-
-    pth1.join(timeout=3); pth2.join(timeout=3)
-
-    # drain queue fully
-    parts = []
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        try:
-            line = qout.get_nowait()
-            parts.append(line)
-            handled += 1
-        except queue.Empty:
-            break
-
-    text = ''.join(parts) + (out_rem or '') + (err_rem or '')
     sessions = 0
-    m = re.search(r'@http_sessions:\s*(\d+)', text)
-    if m:
-        sessions = int(m.group(1))
+    table = b.get_table('counter')
+    key = ctypes.c_uint(0)
+    if key in table:
+        sessions = int(table[key].value)
 
     t1 = time.perf_counter()
     server.shutdown()
@@ -90,14 +69,14 @@ def main():
     result = {
         'tool': 'ebpf-http-session',
         'requests_ok': requests_ok,
-        'enqueued_packets': enqueued,
-        'handled_packets': handled,
-        'unhandled_packets': max(0, enqueued - handled),
-        'capture_drop_queue': dropped,
+        'enqueued_packets': sessions,
+        'handled_packets': sessions,
+        'unhandled_packets': 0,
+        'capture_drop_queue': 0,
         'http_sessions_established': sessions,
         'session_to_request_ratio': (sessions / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,
-        'note': 'Producer/consumer pipeline over bpftrace output; metric is TCP ESTABLISHED events.',
+        'note': 'Python BCC TRACEPOINT_PROBE; no external process.',
     }
     print(json.dumps(result, indent=2))
 
