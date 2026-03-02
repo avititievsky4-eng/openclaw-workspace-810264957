@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import collections
 import json
-import queue
 import re
 import sys
 import threading
@@ -29,27 +29,38 @@ def main():
     cap = pcapy.open_live(args.iface, 262144, 1, 0)
     cap.setfilter(f'tcp port {args.port}')
 
-    pkt_q: queue.Queue = queue.Queue(maxsize=100000)
+    # Faster producer->consumer channel than Queue for hot path
+    dq = collections.deque(maxlen=120000)
+    cv = threading.Condition()
+
     seen = set()
     responses = 0
-    dropped = 0
     stop = False
 
+    captured_packets_total = 0
+    enqueued_packets = 0
+    dropped_queue = 0
+
     def producer():
-        nonlocal dropped
+        nonlocal captured_packets_total, enqueued_packets, dropped_queue
 
         def cb(_hdr, data):
-            nonlocal dropped
+            nonlocal captured_packets_total, enqueued_packets, dropped_queue
             if not data:
                 return
-            try:
-                pkt_q.put_nowait(data)
-            except queue.Full:
-                dropped += 1
+            captured_packets_total += 1
+            with cv:
+                if len(dq) >= dq.maxlen:
+                    dropped_queue += 1
+                else:
+                    dq.append(data)
+                    enqueued_packets += 1
+                    cv.notify()
 
         while not stop:
             try:
-                cap.dispatch(4096, cb)
+                # big batches to keep capture side hot
+                cap.dispatch(8192, cb)
             except Exception:
                 pass
 
@@ -60,11 +71,18 @@ def main():
         nonlocal responses
         local_seen = set()
         local_resp = 0
-        while not stop or not pkt_q.empty():
-            try:
-                data = pkt_q.get(timeout=0.05)
-            except queue.Empty:
+
+        while True:
+            with cv:
+                while not dq and not stop:
+                    cv.wait(timeout=0.05)
+                if not dq and stop:
+                    break
+                data = dq.popleft() if dq else None
+
+            if not data:
                 continue
+
             m = GET_RE.search(data)
             if m:
                 local_seen.add(int(m.group(1)))
@@ -84,22 +102,30 @@ def main():
     pth.start()
     for c in consumers:
         c.start()
-    time.sleep(0.3)
+
+    time.sleep(0.25)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
-    time.sleep(0.5)
+    time.sleep(0.4)
+
     stop = True
+    with cv:
+        cv.notify_all()
+
     pth.join(timeout=2)
     for c in consumers:
         c.join(timeout=3)
+
     t1 = time.perf_counter()
     server.shutdown()
 
     result = {
         'tool': 'libpcap-http',
         'requests_ok': requests_ok,
+        'captured_packets_total': captured_packets_total,
+        'enqueued_packets': enqueued_packets,
+        'capture_drop_queue': dropped_queue,
         'http_get_seen': len(seen),
         'http_200_seen': responses,
-        'capture_drop_queue': dropped,
         'get_seen_ratio': (len(seen) / requests_ok) if requests_ok else 0.0,
         'responses_seen_ratio': (responses / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,
