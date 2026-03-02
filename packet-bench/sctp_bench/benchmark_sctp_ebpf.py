@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import argparse
-import ctypes
 import json
+import os
+import socket
 import subprocess
 import time
 from bcc import BPF  # type: ignore
@@ -9,6 +10,7 @@ from bcc import BPF  # type: ignore
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--iface', default='lo')
     ap.add_argument('--duration', type=float, default=3.0)
     ap.add_argument('--payload', type=int, default=64)
     ap.add_argument('--gen-threads', type=int, default=1)
@@ -16,65 +18,74 @@ def main():
     ap.add_argument('--generator', default='/home/avi/.openclaw/workspace-810264957/packet-bench/sctp_bench/generate_sctp_scapy.py')
     args = ap.parse_args()
 
-    sent = 0
-    b = None
-    err_note = None
-
-    # Kernel hook available on this host (checked in available_filter_functions).
+    # eBPF socket filter: accept IPv4 SCTP only (IP proto 132)
     bpf_text = r'''
-BPF_HASH(counter, u32, u64);
+#include <uapi/linux/bpf.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
 
-int kprobe__security_sctp_assoc_request(struct pt_regs *ctx) {
-    u32 key = 0;
-    u64 zero = 0, *val;
-    val = counter.lookup_or_try_init(&key, &zero);
-    if (val) {
-        (*val)++;
-    }
-    return 0;
+int sctp_filter(struct __sk_buff *skb) {
+    u8 proto = 0;
+
+    // Ethernet + IPv4 protocol offset: 14 + 9
+    if (bpf_skb_load_bytes(skb, 23, &proto, 1) < 0)
+        return 0;
+
+    if (proto == 132)
+        return -1;   // pass packet to socket
+
+    return 0;        // drop
 }
 '''
 
-    try:
-        b = BPF(text=bpf_text)
-    except Exception as e:
-        err_note = f'ebpf attach failed: {e}'
+    b = BPF(text=bpf_text)
+    fn = b.load_func('sctp_filter', BPF.SOCKET_FILTER)
+    BPF.attach_raw_socket(fn, args.iface)
 
-    time.sleep(0.25)
-    # Use INIT mode to trigger association-request path.
+    sock = socket.fromfd(fn.sock, socket.PF_PACKET, socket.SOCK_RAW, socket.IPPROTO_IP)
+    sock.setblocking(False)
+
+    # Start traffic generator
+    time.sleep(0.2)
     gen = subprocess.run([
         args.scapy_python, args.generator,
+        '--iface', args.iface,
         '--duration', str(args.duration),
         '--payload', str(args.payload),
         '--threads', str(args.gen_threads),
-        '--mode', 'init'
+        '--mode', 'data'
     ], capture_output=True, text=True)
+
+    sent = 0
     try:
         sent = json.loads(gen.stdout).get('sent', 0)
     except Exception:
         pass
 
-    time.sleep(0.25)
-
+    # Drain accepted SCTP packets from socket
     captured = 0
-    if b is not None:
-        table = b.get_table('counter')
-        key = ctypes.c_uint(0)
-        if key in table:
-            captured = int(table[key].value)
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        try:
+            _pkt = os.read(fn.sock, 65535)
+            if _pkt:
+                captured += 1
+        except BlockingIOError:
+            time.sleep(0.001)
+        except Exception:
+            break
 
-    normalized = captured // 2
+    normalized = captured // 2 if args.iface == 'lo' else captured
 
-    result = {
+    print(json.dumps({
         'tool': 'ebpf-sctp',
         'sent': sent,
         'captured': captured,
         'captured_normalized': normalized,
-        'capture_ratio': (captured/sent) if sent else 0.0,
-        'capture_ratio_normalized': (normalized/sent) if sent else 0.0,
-        'note': err_note or 'BCC kprobe on security_sctp_assoc_request (INIT path).',
-    }
-    print(json.dumps(result, indent=2))
+        'capture_ratio': (captured / sent) if sent else 0.0,
+        'capture_ratio_normalized': (normalized / sent) if sent else 0.0,
+        'note': 'eBPF SOCKET_FILTER attached to raw socket; filters SCTP in-kernel.'
+    }, indent=2))
 
 
 if __name__ == '__main__':
