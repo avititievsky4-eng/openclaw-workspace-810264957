@@ -21,10 +21,11 @@ SCAPY_JSON=$(run_json scapy "$BASE/scapy_project/.venv312/bin/python" "$BASE/sca
 LIBPCAP_JSON=$(run_json libpcap "$BASE/libpcap_project/.venv312/bin/python" "$BASE/libpcap_project/benchmark_libpcap.py" --duration "$DURATION" --payload "$PAYLOAD" --port "$PORT")
 TCPDUMP_JSON=$(run_json tcpdump python3 "$BASE/tcpdump_project/benchmark_tcpdump.py" --duration "$DURATION" --payload "$PAYLOAD" --port "$PORT")
 RAWSOCK_JSON=$(run_json rawsocket python3 "$BASE/rawsocket_project/benchmark_rawsocket.py" --duration "$DURATION" --payload "$PAYLOAD" --port "$PORT")
+EBPF_JSON=$(run_json ebpf python3 "$BASE/ebpf_project/benchmark_ebpf.py" --duration "$DURATION" --payload "$PAYLOAD" --port "$PORT")
 
-SCAPY_JSON="$SCAPY_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" python3 - <<'PY'
+SCAPY_JSON="$SCAPY_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" EBPF_JSON="$EBPF_JSON" python3 - <<'PY'
 import json, os
-files = [os.environ['SCAPY_JSON'], os.environ['LIBPCAP_JSON'], os.environ['TCPDUMP_JSON'], os.environ['RAWSOCK_JSON']]
+files = [os.environ['SCAPY_JSON'], os.environ['LIBPCAP_JSON'], os.environ['TCPDUMP_JSON'], os.environ['RAWSOCK_JSON'], os.environ['EBPF_JSON']]
 rows = []
 for p in files:
     rows.append(json.load(open(p)))

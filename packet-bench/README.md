@@ -6,6 +6,7 @@ Implemented methods:
 - `libpcap_project` (`pcapy-ng` / libpcap binding)
 - `tcpdump_project` (tcpdump CLI on libpcap)
 - `rawsocket_project` (Linux `AF_PACKET` raw socket)
+- `ebpf_project` (eBPF with `bpftrace` tracepoint counter)
 
 ## Files
 
