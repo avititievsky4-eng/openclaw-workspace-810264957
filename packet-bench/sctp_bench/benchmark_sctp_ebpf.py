@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import socket
 import subprocess
 import time
@@ -46,9 +47,10 @@ int sctp_filter(struct __sk_buff *skb) {
         '--iface', args.iface,
         '--duration', str(args.duration),
         '--payload', str(args.payload),
-        '--threads', str(args.gen_threads),
-        '--mode', 'data'
+        '--threads', str(args.gen_threads)
     ]
+    if args.generator.endswith('generate_sctp_scapy.py'):
+        gen_cmd += ['--mode', 'data']
     if args.gen_pps > 0:
         gen_cmd += ['--pps', str(args.gen_pps)]
 
@@ -80,14 +82,20 @@ int sctp_filter(struct __sk_buff *skb) {
         except Exception:
             break
 
-    out, _err = gen.communicate(timeout=5)
+    out, err = gen.communicate(timeout=5)
     sent = 0
     try:
-        sent = json.loads(out).get('sent', 0)
+        sent = json.loads((out or '').strip()).get('sent', 0)
     except Exception:
-        pass
+        m = re.search(r'"sent"\s*:\s*(\d+)', (out or '') + '\n' + (err or ''))
+        if m:
+            sent = int(m.group(1))
 
     normalized = captured // 2 if args.iface == 'lo' else captured
+
+    note = 'eBPF SOCKET_FILTER with concurrent recv loop and enlarged RCVBUF.'
+    if sent == 0 and err:
+        note += ' generator_parse_fallback_used'
 
     print(json.dumps({
         'tool': 'ebpf-sctp',
@@ -96,7 +104,7 @@ int sctp_filter(struct __sk_buff *skb) {
         'captured_normalized': normalized,
         'capture_ratio': (captured / sent) if sent else 0.0,
         'capture_ratio_normalized': (normalized / sent) if sent else 0.0,
-        'note': 'eBPF SOCKET_FILTER with concurrent recv loop and enlarged RCVBUF.'
+        'note': note
     }, indent=2))
 
 
