@@ -23,12 +23,12 @@ def parse_ipv4_tcp(frame: bytes):
     eth_type = int.from_bytes(frame[12:14], 'big')
     if eth_type != 0x0800:
         return None
+
     ip_off = 14
     ihl = (frame[ip_off] & 0x0F) * 4
     if len(frame) < ip_off + ihl + 20:
         return None
-    proto = frame[ip_off + 9]
-    if proto != 6:
+    if frame[ip_off + 9] != 6:
         return None
 
     src_ip = frame[ip_off + 12:ip_off + 16]
@@ -37,12 +37,14 @@ def parse_ipv4_tcp(frame: bytes):
     tcp_off = ip_off + ihl
     src_port = int.from_bytes(frame[tcp_off:tcp_off + 2], 'big')
     dst_port = int.from_bytes(frame[tcp_off + 2:tcp_off + 4], 'big')
+    seq = int.from_bytes(frame[tcp_off + 4:tcp_off + 8], 'big')
     data_off = ((frame[tcp_off + 12] >> 4) & 0xF) * 4
+
     payload_off = tcp_off + data_off
     if payload_off > len(frame):
         return None
     payload = frame[payload_off:]
-    return src_ip, dst_ip, src_port, dst_port, payload
+    return src_ip, dst_ip, src_port, dst_port, seq, payload
 
 
 def main():
@@ -58,11 +60,9 @@ def main():
     cap = pcapy.open_live(args.iface, 262144, 1, 1)
     cap.setfilter(f'tcp port {args.port}')
 
-    dq = collections.deque(maxlen=150000)
+    dq = collections.deque(maxlen=200000)
     cv = threading.Condition()
 
-    seen_get_ids = set()
-    seen_resp_markers = set()
     stop = False
     producer_done = False
 
@@ -71,9 +71,12 @@ def main():
     handled_packets = 0
     dropped_queue = 0
 
-    # Reassembly buffers per flow direction
+    seen_get_ids = set()
+    http_200_seen = 0
+
+    # flow -> {next_seq: int|None, frags: {seq:bytes}, buf: bytes}
     req_streams = {}
-    resp_streams = {}
+    resp_seen_chunks = set()
 
     def producer():
         nonlocal captured_packets_total, enqueued_packets, dropped_queue, producer_done
@@ -101,20 +104,46 @@ def main():
     seen_lock = threading.Lock()
     handled_lock = threading.Lock()
 
-    def consume_http_from_buffer(buf: bytes, is_request: bool):
-        ids = set()
-        resp_cnt = 0
-        if is_request:
-            for m in GET_RE.finditer(buf):
-                ids.add(int(m.group(1)))
-        else:
-            resp_cnt = buf.count(b'HTTP/1.0 200 OK') + buf.count(b'HTTP/1.1 200 OK')
-        return ids, resp_cnt
+    def reassemble_request(flow_key, seq, payload):
+        st = req_streams.get(flow_key)
+        if st is None:
+            st = {'next_seq': None, 'frags': {}, 'buf': b''}
+            req_streams[flow_key] = st
+
+        # Skip empty payload quickly
+        if not payload:
+            return b''
+
+        # De-dup / out-of-order handling
+        st['frags'][seq] = payload
+
+        emitted = b''
+        if st['next_seq'] is None:
+            # start from lowest known sequence for this flow
+            start = min(st['frags'].keys())
+            st['next_seq'] = start
+
+        ns = st['next_seq']
+        while ns in st['frags']:
+            chunk = st['frags'].pop(ns)
+            emitted += chunk
+            ns += len(chunk)
+        st['next_seq'] = ns
+
+        if emitted:
+            st['buf'] += emitted
+            if len(st['buf']) > 131072:
+                st['buf'] = st['buf'][-131072:]
+            out = st['buf']
+            # keep tail for boundary spanning
+            st['buf'] = st['buf'][-4096:]
+            return out
+        return b''
 
     def consumer():
-        nonlocal handled_packets
+        nonlocal handled_packets, http_200_seen
         local_get = set()
-        local_resp_markers = set()
+        local_200 = 0
         local_handled = 0
 
         while True:
@@ -127,51 +156,40 @@ def main():
 
             if not frame:
                 continue
-
             local_handled += 1
 
             parsed = parse_ipv4_tcp(frame)
             if not parsed:
                 continue
-            src_ip, dst_ip, src_port, dst_port, payload = parsed
+            src_ip, dst_ip, src_port, dst_port, seq, payload = parsed
             if not payload:
                 continue
 
             if dst_port == args.port:
-                key = (src_ip, src_port, dst_ip, dst_port)
-                b = req_streams.get(key, b'') + payload
-                if len(b) > 65536:
-                    b = b[-65536:]
-                ids, _ = consume_http_from_buffer(b, True)
-                if ids:
-                    local_get.update(ids)
-                    # keep tail only after parsing
-                    b = b[-2048:]
-                req_streams[key] = b
+                flow = (src_ip, src_port, dst_ip, dst_port)
+                stream_data = reassemble_request(flow, seq, payload)
+                if stream_data:
+                    for m in GET_RE.finditer(stream_data):
+                        local_get.add(int(m.group(1)))
 
             elif src_port == args.port:
-                key = (src_ip, src_port, dst_ip, dst_port)
-                b = resp_streams.get(key, b'') + payload
-                if len(b) > 65536:
-                    b = b[-65536:]
-                _, resp_cnt = consume_http_from_buffer(b, False)
-                if resp_cnt:
-                    # Use flow+count marker to reduce double counting artifacts.
-                    local_resp_markers.add((key, resp_cnt, len(b)))
-                    b = b[-2048:]
-                resp_streams[key] = b
+                # best effort for responses; dedup with chunk hash
+                marker = hash(payload)
+                if marker not in resp_seen_chunks:
+                    resp_seen_chunks.add(marker)
+                    local_200 += payload.count(b'HTTP/1.0 200 OK') + payload.count(b'HTTP/1.1 200 OK')
 
         with handled_lock:
             handled_packets += local_handled
 
-        if local_get or local_resp_markers:
+        if local_get or local_200:
             with seen_lock:
                 seen_get_ids.update(local_get)
-                seen_resp_markers.update(local_resp_markers)
+                http_200_seen += local_200
 
     t0 = time.perf_counter()
     pth = threading.Thread(target=producer, daemon=True)
-    consumers = [threading.Thread(target=consumer, daemon=True)]
+    consumers = [threading.Thread(target=consumer, daemon=True) for _ in range(2)]
     pth.start()
     for c in consumers:
         c.start()
@@ -179,14 +197,13 @@ def main():
     time.sleep(0.25)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
 
-    # Stop producer first, then wait until queue is fully drained and handled.
     stop = True
     with cv:
         cv.notify_all()
 
     pth.join(timeout=5)
 
-    drain_deadline = time.perf_counter() + 10.0
+    drain_deadline = time.perf_counter() + 12.0
     while time.perf_counter() < drain_deadline:
         with cv:
             qlen = len(dq)
@@ -205,9 +222,6 @@ def main():
     t1 = time.perf_counter()
     server.shutdown()
 
-    # Approximate HTTP-200 seen from unique markers (still best-effort under loopback duplicates)
-    http_200_seen = len(seen_resp_markers)
-
     result = {
         'tool': 'libpcap-http',
         'requests_ok': requests_ok,
@@ -221,7 +235,7 @@ def main():
         'get_seen_ratio': (len(seen_get_ids) / requests_ok) if requests_ok else 0.0,
         'responses_seen_ratio': (http_200_seen / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,
-        'note': 'Producer-consumer + lightweight TCP stream buffering for better L7 GET detection.'
+        'note': 'Producer-consumer + per-flow TCP sequence reassembly for request stream.'
     }
     print(json.dumps(result, indent=2))
 
