@@ -20,14 +20,11 @@ def main():
     b = None
     err_note = None
 
-    # Prefer tracepoint for portability; count SCTP protocol (=132) state changes.
+    # Kernel hook available on this host (checked in available_filter_functions).
     bpf_text = r'''
 BPF_HASH(counter, u32, u64);
 
-TRACEPOINT_PROBE(sock, inet_sock_set_state) {
-    if (args->protocol != 132) {
-        return 0;
-    }
+int kprobe__security_sctp_assoc_request(struct pt_regs *ctx) {
     u32 key = 0;
     u64 zero = 0, *val;
     val = counter.lookup_or_try_init(&key, &zero);
@@ -44,7 +41,14 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {
         err_note = f'ebpf attach failed: {e}'
 
     time.sleep(0.25)
-    gen = subprocess.run([args.scapy_python, args.generator, '--duration', str(args.duration), '--payload', str(args.payload), '--threads', str(args.gen_threads)], capture_output=True, text=True)
+    # Use INIT mode to trigger association-request path.
+    gen = subprocess.run([
+        args.scapy_python, args.generator,
+        '--duration', str(args.duration),
+        '--payload', str(args.payload),
+        '--threads', str(args.gen_threads),
+        '--mode', 'init'
+    ], capture_output=True, text=True)
     try:
         sent = json.loads(gen.stdout).get('sent', 0)
     except Exception:
@@ -68,7 +72,7 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {
         'captured_normalized': normalized,
         'capture_ratio': (captured/sent) if sent else 0.0,
         'capture_ratio_normalized': (normalized/sent) if sent else 0.0,
-        'note': err_note or 'BCC tracepoint sock:inet_sock_set_state for SCTP protocol events.',
+        'note': err_note or 'BCC kprobe on security_sctp_assoc_request (INIT path).',
     }
     print(json.dumps(result, indent=2))
 

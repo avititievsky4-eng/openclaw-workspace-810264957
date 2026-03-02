@@ -4,7 +4,7 @@ import json
 import random
 import threading
 import time
-from scapy.all import IP, SCTP, SCTPChunkData, send  # type: ignore
+from scapy.all import IP, SCTP, SCTPChunkData, SCTPChunkInit, send  # type: ignore
 
 
 def main():
@@ -16,6 +16,7 @@ def main():
     ap.add_argument('--duration', type=float, default=3.0)
     ap.add_argument('--payload', type=int, default=64)
     ap.add_argument('--threads', type=int, default=1)
+    ap.add_argument('--mode', choices=['data','init'], default='data')
     args = ap.parse_args()
 
     total_sent = 0
@@ -29,7 +30,10 @@ def main():
         data = b'X' * args.payload
         while time.perf_counter() < deadline:
             tag = rnd.randint(1, 2**32 - 1)
-            pkt = IP(dst=args.dst)/SCTP(sport=args.sport, dport=args.dport, tag=tag)/SCTPChunkData(data=data)
+            if args.mode == 'init':
+                pkt = IP(dst=args.dst)/SCTP(sport=args.sport, dport=args.dport, tag=0)/SCTPChunkInit(init_tag=tag, a_rwnd=1500, n_out_streams=1, n_in_streams=1, init_tsn=tag & 0xffffffff)
+            else:
+                pkt = IP(dst=args.dst)/SCTP(sport=args.sport, dport=args.dport, tag=tag)/SCTPChunkData(data=data)
             send(pkt, verbose=False)
             local_sent += 1
         with lock:
