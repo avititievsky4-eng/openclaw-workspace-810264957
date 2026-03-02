@@ -20,7 +20,11 @@ run_json () {
   shift
   local out="$OUTDIR/sctp_${name}_${DURATION}s.json"
   echo "[+] Running $name SCTP benchmark..." >&2
-  echo 'aviavi11' | sudo -S "$@" > "$out"
+  if [[ $EUID -eq 0 ]]; then
+    "$@" > "$out"
+  else
+    sudo "$@" > "$out"
+  fi
   echo "$out"
 }
 
