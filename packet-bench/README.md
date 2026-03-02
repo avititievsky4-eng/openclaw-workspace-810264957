@@ -17,6 +17,7 @@ Shared helper:
 
 Runner:
 - `run_http_compare_all.sh`
+- `run_sctp_compare_all.sh`
 
 Results summaries:
 - `results/latest-http-summary.md`
