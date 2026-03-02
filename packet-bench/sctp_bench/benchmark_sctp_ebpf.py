@@ -14,6 +14,7 @@ def main():
     ap.add_argument('--duration', type=float, default=3.0)
     ap.add_argument('--payload', type=int, default=64)
     ap.add_argument('--gen-threads', type=int, default=1)
+    ap.add_argument('--gen-pps', type=int, default=0)
     ap.add_argument('--scapy-python', default='/home/avi/.openclaw/workspace-810264957/packet-bench/scapy_project/.venv312/bin/python')
     ap.add_argument('--generator', default='/home/avi/.openclaw/workspace-810264957/packet-bench/sctp_bench/generate_sctp_scapy.py')
     args = ap.parse_args()
@@ -48,6 +49,8 @@ int sctp_filter(struct __sk_buff *skb) {
         '--threads', str(args.gen_threads),
         '--mode', 'data'
     ]
+    if args.gen_pps > 0:
+        gen_cmd += ['--pps', str(args.gen_pps)]
 
     gen = subprocess.Popen(gen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
