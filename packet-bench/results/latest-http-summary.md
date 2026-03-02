@@ -1,14 +1,14 @@
-# Latest HTTP session benchmark (8s, workers=6)
+# Latest HTTP session benchmark (3s, workers=4) — Producer/Consumer in all methods
 
 ## L7 parsing methods
-- tcpdump-http: req_ok=9,100 GET_seen=9,073 200_seen=9,070 GET_ratio=99.70%
-- scapy-http: req_ok=9,381 GET_seen=5,383 200_seen=12,556 GET_ratio=57.38%
-- libpcap-http: req_ok=7,593 GET_seen=4,021 200_seen=4,040 GET_ratio=52.96%
-- rawsocket-http: req_ok=7,595 GET_seen=2,471 200_seen=3,787 GET_ratio=32.53%
+- tcpdump-http: req_ok=2,924 GET_seen=2,924 200_seen=2,924 GET_ratio=100.00%
+- scapy-http: req_ok=3,313 GET_seen=1,737 200_seen=3,866 GET_ratio=52.43%
+- libpcap-http: req_ok=2,556 GET_seen=1,261 200_seen=1,263 GET_ratio=49.33%
+- rawsocket-http: req_ok=2,553 GET_seen=712 200_seen=909 GET_ratio=27.89%
 
 Winner by HTTP GET parsed: tcpdump-http
 
-## eBPF session tracker
-- ebpf-http-session: req_ok=9,032 sessions=18,064 ratio=200.00%
+## eBPF session tracker (producer/consumer over bpftrace output)
+- ebpf-http-session: req_ok=3,325 sessions=6,650 ratio=200.00%
 
-Note: eBPF method tracks TCP ESTABLISHED events (session-level), not HTTP payload parsing.
+Note: eBPF metric counts TCP ESTABLISHED events (session-level), not HTTP payload parsing.

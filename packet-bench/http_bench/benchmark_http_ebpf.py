@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import queue
 import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -22,27 +24,50 @@ def main():
 
     server = start_http_server(args.host, args.port)
 
-    # Count TCP connections entering ESTABLISHED where either src or dst port matches.
     prog = (
-        f'tracepoint:sock:inet_sock_set_state '
-        f'/args->protocol==6 && args->newstate==1 && (args->dport=={args.port} || args->sport=={args.port})/ '
+        'tracepoint:sock:inet_sock_set_state '
+        '/args->protocol==6 && args->newstate==1/ '
         '{ @http_sessions = count(); }'
     )
 
     t0 = time.perf_counter()
     p = subprocess.Popen(['bpftrace', '-e', prog], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    out_q: queue.Queue = queue.Queue(maxsize=10000)
+    stop = False
+
+    def producer(stream):
+        while not stop:
+            line = stream.readline()
+            if not line:
+                break
+            try:
+                out_q.put_nowait(line)
+            except queue.Full:
+                pass
+
+    pth1 = threading.Thread(target=producer, args=(p.stdout,), daemon=True)
+    pth2 = threading.Thread(target=producer, args=(p.stderr,), daemon=True)
+    pth1.start(); pth2.start()
+
     time.sleep(0.35)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     time.sleep(0.4)
 
+    stop = True
     p.send_signal(signal.SIGINT)
     try:
-        out, err = p.communicate(timeout=5)
+        out_rem, err_rem = p.communicate(timeout=5)
     except subprocess.TimeoutExpired:
         p.kill()
-        out, err = p.communicate()
+        out_rem, err_rem = p.communicate(timeout=3)
 
-    text = (out or '') + '\n' + (err or '')
+    pth1.join(timeout=2); pth2.join(timeout=2)
+
+    text_parts = []
+    while not out_q.empty():
+        text_parts.append(out_q.get())
+    text = ''.join(text_parts) + (out_rem or '') + (err_rem or '')
     sessions = 0
     m = re.search(r'@http_sessions:\s*(\d+)', text)
     if m:
@@ -57,7 +82,7 @@ def main():
         'http_sessions_established': sessions,
         'session_to_request_ratio': (sessions / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,
-        'note': 'eBPF here tracks TCP ESTABLISHED events for server port, not HTTP payload parsing.',
+        'note': 'Producer/consumer pipeline over bpftrace output; metric is TCP ESTABLISHED events.',
     }
     print(json.dumps(result, indent=2))
 

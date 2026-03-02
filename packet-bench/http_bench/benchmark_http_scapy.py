@@ -2,8 +2,10 @@
 import argparse
 import json
 import multiprocessing as mp
+import queue
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -15,21 +17,41 @@ GET_RE = re.compile(br'GET /bench\?id=(\d+)')
 
 
 def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
+    pkt_q: queue.Queue = queue.Queue(maxsize=20000)
     seen = set()
     responses = 0
+    stop = False
+    dropped = 0
 
-    def on_pkt(pkt):
+    def consumer():
         nonlocal responses
-        if Raw in pkt:
-            data = bytes(pkt[Raw].load)
+        while not stop or not pkt_q.empty():
+            try:
+                data = pkt_q.get(timeout=0.05)
+            except queue.Empty:
+                continue
             m = GET_RE.search(data)
             if m:
                 seen.add(int(m.group(1)))
             if b'HTTP/1.' in data and b' 200 ' in data:
                 responses += 1
 
+    cth = threading.Thread(target=consumer, daemon=True)
+    cth.start()
+
+    def on_pkt(pkt):
+        nonlocal dropped
+        if Raw in pkt:
+            data = bytes(pkt[Raw].load)
+            try:
+                pkt_q.put_nowait(data)
+            except queue.Full:
+                dropped += 1
+
     sniff(iface=iface, filter=f'tcp port {port}', prn=on_pkt, store=False, timeout=run_for)
-    q.put((len(seen), responses))
+    stop = True
+    cth.join(timeout=3)
+    q.put((len(seen), responses, dropped))
 
 
 def main():
@@ -53,12 +75,13 @@ def main():
     t1 = time.perf_counter()
     server.shutdown()
 
-    seen, responses = q.get() if not q.empty() else (0, 0)
+    seen, responses, dropped = q.get() if not q.empty() else (0, 0, 0)
     result = {
         'tool': 'scapy-http',
         'requests_ok': requests_ok,
         'http_get_seen': seen,
         'http_200_seen': responses,
+        'capture_drop_queue': dropped,
         'get_seen_ratio': (seen / requests_ok) if requests_ok else 0.0,
         'responses_seen_ratio': (responses / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import queue
 import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -24,33 +26,57 @@ def main():
     args = ap.parse_args()
 
     server = start_http_server(args.host, args.port)
-    pcap = f'/tmp/http_bench_{int(time.time()*1000)}.pcap'
 
-    # Optimized tcpdump capture: large buffer + write pcap (no stdout bottleneck).
-    cmd = ['tcpdump', '-i', args.iface, '-n', '-s0', '-B', '4096', '-w', pcap, f'tcp port {args.port}']
+    cmd = ['tcpdump', '-i', args.iface, '-n', '-s0', '-A', '-l', f'tcp port {args.port}']
     t0 = time.perf_counter()
-    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors='ignore')
+
+    line_q: queue.Queue = queue.Queue(maxsize=50000)
+    ids = set()
+    responses = 0
+    dropped = 0
+    stop = False
+
+    def producer():
+        nonlocal dropped
+        while not stop:
+            line = p.stdout.readline() if p.stdout else ''
+            if not line:
+                break
+            try:
+                line_q.put_nowait(line)
+            except queue.Full:
+                dropped += 1
+
+    def consumer():
+        nonlocal responses
+        while not stop or not line_q.empty():
+            try:
+                line = line_q.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            m = GET_RE.search(line)
+            if m:
+                ids.add(int(m.group(1)))
+            if 'HTTP/1.0 200 OK' in line or 'HTTP/1.1 200 OK' in line:
+                responses += 1
+
+    pth = threading.Thread(target=producer, daemon=True)
+    cth = threading.Thread(target=consumer, daemon=True)
+    pth.start(); cth.start()
 
     time.sleep(0.4)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     time.sleep(0.6)
 
+    stop = True
     p.send_signal(signal.SIGINT)
     try:
         p.wait(timeout=6)
     except subprocess.TimeoutExpired:
-        p.kill()
-        p.wait(timeout=3)
+        p.kill(); p.wait(timeout=3)
 
-    # Offline parse from pcap to ASCII using tcpdump -A -r
-    decode = subprocess.run(['tcpdump', '-A', '-n', '-r', pcap], capture_output=True, text=True, errors='ignore')
-    out = decode.stdout or ''
-
-    ids = set(int(m.group(1)) for m in GET_RE.finditer(out))
-    responses = out.count('HTTP/1.0 200 OK') + out.count('HTTP/1.1 200 OK')
-
-    # cleanup
-    subprocess.run(['rm', '-f', pcap], check=False)
+    pth.join(timeout=2); cth.join(timeout=3)
 
     t1 = time.perf_counter()
     server.shutdown()
@@ -60,6 +86,7 @@ def main():
         'requests_ok': requests_ok,
         'http_get_seen': len(ids),
         'http_200_seen': responses,
+        'capture_drop_queue': dropped,
         'get_seen_ratio': (len(ids) / requests_ok) if requests_ok else 0.0,
         'responses_seen_ratio': (responses / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,
