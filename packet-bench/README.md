@@ -1,45 +1,39 @@
-# Packet Capture Stress Benchmark (All Methods)
+# HTTP Benchmark Suite
 
-Implemented methods:
+This repository is now focused on **HTTP/session benchmarking only**.
 
-- `scapy_project` (Scapy)
-- `libpcap_project` (`pcapy-ng` / libpcap binding)
-- `tcpdump_project` (tcpdump CLI on libpcap)
-- `rawsocket_project` (Linux `AF_PACKET` raw socket)
-- `http_bench/benchmark_http_rawsocket_tpacketv3.py` (AF_PACKET + `TPACKET_V3` ring)
-- `ebpf_project` (eBPF with `bpftrace` tracepoint counter)
+## Included methods
 
-## Files
+- `http_bench/benchmark_http_scapy.py`
+- `http_bench/benchmark_http_libpcap.py`
+- `http_bench/benchmark_http_tcpdump.py`
+- `http_bench/benchmark_http_rawsocket.py`
+- `http_bench/benchmark_http_rawsocket_tpacketv3.py`
+- `http_bench/benchmark_http_pypcap.py`
+- `http_bench/benchmark_http_ebpf.py`
 
-- `scapy_project/benchmark_scapy.py`
-- `libpcap_project/benchmark_libpcap.py`
-- `tcpdump_project/benchmark_tcpdump.py`
-- `rawsocket_project/benchmark_rawsocket.py`
-- `run_compare.sh` — Scapy vs libpcap
-- `run_compare_all.sh` — runs all methods and prints winner
-- `results/*.json` — benchmark outputs
+Shared helper:
+- `http_bench/common_http.py`
+
+Runner:
+- `run_http_compare_all.sh`
+
+Results summaries:
+- `results/latest-http-summary.md`
+- `results/graded-load-summary.md`
 
 ## Run
 
 ```bash
 cd packet-bench
-./run_compare_all.sh 5 64
+./run_http_compare_all.sh 6 8
 ```
 
 Arguments:
-
 - first arg: duration in seconds
-- second arg: UDP payload size in bytes
-
-## Latest 5s run (payload 64)
-
-- `libpcap(pcapy-ng)`: 100.00% capture
-- `raw_socket(AF_PACKET)`: 99.74% capture
-- `scapy`: 1.86% capture
-- `tcpdump(libpcap)`: 0.06% capture
+- second arg: worker count
 
 ## Notes
 
-- Capture tests require root (scripts use sudo).
-- Traffic is local only (`127.0.0.1`, UDP port `9999`) so no external network traffic is generated.
-- For stronger stress, increase duration/payload (e.g. `./run_compare_all.sh 10 256`).
+- Requires sudo/root for packet capture methods.
+- Uses local benchmark traffic on loopback (`127.0.0.1`).
