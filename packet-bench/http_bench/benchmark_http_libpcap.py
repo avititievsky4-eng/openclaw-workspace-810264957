@@ -110,20 +110,27 @@ def main():
             st = {'next_seq': None, 'frags': {}, 'buf': b''}
             req_streams[flow_key] = st
 
-        # Skip empty payload quickly
         if not payload:
             return b''
 
-        # De-dup / out-of-order handling
+        # Initialize sequence cursor on first seen payload.
+        if st['next_seq'] is None:
+            st['next_seq'] = seq
+
+        ns = st['next_seq']
+
+        # Trim already-consumed overlap (retransmits / duplicates).
+        if seq < ns:
+            cut = ns - seq
+            if cut >= len(payload):
+                return b''
+            payload = payload[cut:]
+            seq = ns
+
+        # Keep latest fragment for a given seq.
         st['frags'][seq] = payload
 
         emitted = b''
-        if st['next_seq'] is None:
-            # start from lowest known sequence for this flow
-            start = min(st['frags'].keys())
-            st['next_seq'] = start
-
-        ns = st['next_seq']
         while ns in st['frags']:
             chunk = st['frags'].pop(ns)
             emitted += chunk
@@ -135,7 +142,6 @@ def main():
             if len(st['buf']) > 131072:
                 st['buf'] = st['buf'][-131072:]
             out = st['buf']
-            # keep tail for boundary spanning
             st['buf'] = st['buf'][-4096:]
             return out
         return b''
@@ -189,7 +195,8 @@ def main():
 
     t0 = time.perf_counter()
     pth = threading.Thread(target=producer, daemon=True)
-    consumers = [threading.Thread(target=consumer, daemon=True) for _ in range(2)]
+    # Single consumer avoids shared-state races in per-flow TCP reassembly.
+    consumers = [threading.Thread(target=consumer, daemon=True)]
     pth.start()
     for c in consumers:
         c.start()
