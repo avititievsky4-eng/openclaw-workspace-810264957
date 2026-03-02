@@ -6,6 +6,7 @@ Implemented methods:
 - `libpcap_project` (`pcapy-ng` / libpcap binding)
 - `tcpdump_project` (tcpdump CLI on libpcap)
 - `rawsocket_project` (Linux `AF_PACKET` raw socket)
+- `http_bench/benchmark_http_rawsocket_tpacketv3.py` (AF_PACKET + `TPACKET_V3` ring)
 - `ebpf_project` (eBPF with `bpftrace` tracepoint counter)
 
 ## Files
