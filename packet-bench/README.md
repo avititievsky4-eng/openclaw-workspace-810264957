@@ -45,7 +45,7 @@ cd packet-bench
 - arg1 = duration (seconds)
 - arg2 = payload bytes
 - arg3 = generator threads
-- arg4 = iface (optional, default `lo`)
+- arg4 = iface (optional, default `eth0`)
 - arg5 = generator PPS (optional, default `0` = topspeed)
 
 Example with fixed rate (the “~half Scapy” scenario):

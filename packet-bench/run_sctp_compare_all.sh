@@ -4,7 +4,7 @@ set -euo pipefail
 DURATION="${1:-3}"
 PAYLOAD="${2:-64}"
 GEN_THREADS="${3:-1}"
-IFACE="${4:-lo}"
+IFACE="${4:-eth0}"
 GEN_PPS="${5:-0}"
 BASE="$(dirname "$0")"
 OUTDIR="$BASE/results"
