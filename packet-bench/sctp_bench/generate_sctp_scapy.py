@@ -12,6 +12,7 @@ def main():
     ap.add_argument('--dst', default='127.0.0.1')
     ap.add_argument('--sport', type=int, default=2905)
     ap.add_argument('--dport', type=int, default=2905)
+    ap.add_argument('--iface', default='lo')
     ap.add_argument('--duration', type=float, default=3.0)
     ap.add_argument('--payload', type=int, default=64)
     ap.add_argument('--threads', type=int, default=1)

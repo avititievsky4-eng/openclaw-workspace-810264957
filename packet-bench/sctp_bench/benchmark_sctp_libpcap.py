@@ -59,7 +59,7 @@ def main():
     pth.start(); cth.start()
 
     time.sleep(0.3)
-    gen = subprocess.run([args.scapy_python, args.generator, '--duration', str(args.duration), '--payload', str(args.payload), '--threads', str(args.gen_threads)], capture_output=True, text=True)
+    gen = subprocess.run([args.scapy_python, args.generator, '--iface', str(args.iface), '--duration', str(args.duration), '--payload', str(args.payload), '--threads', str(args.gen_threads)], capture_output=True, text=True)
     sent = 0
     try:
         sent = json.loads(gen.stdout).get('sent', 0)

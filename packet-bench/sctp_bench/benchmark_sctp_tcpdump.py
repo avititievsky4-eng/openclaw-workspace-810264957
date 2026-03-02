@@ -26,7 +26,7 @@ def main():
 
     time.sleep(0.3)
     gen = subprocess.run(
-        [args.scapy_python, args.generator, '--duration', str(args.duration), '--payload', str(args.payload), '--threads', str(args.gen_threads)],
+        [args.scapy_python, args.generator, '--iface', str(args.iface), '--duration', str(args.duration), '--payload', str(args.payload), '--threads', str(args.gen_threads)],
         capture_output=True,
         text=True,
     )
