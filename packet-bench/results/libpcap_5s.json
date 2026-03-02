@@ -3,11 +3,11 @@
   "iface": "lo",
   "duration_s": 5.0,
   "payload_bytes": 64,
-  "sent": 1104462,
-  "captured": 1104462,
+  "sent": 1095858,
+  "captured": 1095858,
   "loss": 0,
   "capture_ratio": 1.0,
-  "send_pps": 220892.4,
-  "captured_pps": 220892.4,
-  "elapsed_s": 7.700819510035217
+  "send_pps": 219171.6,
+  "captured_pps": 219171.6,
+  "elapsed_s": 7.701448053936474
 }

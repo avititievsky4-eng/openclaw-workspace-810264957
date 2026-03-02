@@ -55,7 +55,7 @@ def main():
     args = ap.parse_args()
 
     server = start_http_server(args.host, args.port)
-    cap = pcapy.open_live(args.iface, 262144, 1, 0)
+    cap = pcapy.open_live(args.iface, 262144, 1, 1)
     cap.setfilter(f'tcp port {args.port}')
 
     dq = collections.deque(maxlen=150000)
@@ -77,24 +77,20 @@ def main():
 
     def producer():
         nonlocal captured_packets_total, enqueued_packets, dropped_queue, producer_done
-
-        def cb(_hdr, data):
-            nonlocal captured_packets_total, enqueued_packets, dropped_queue
-            if not data:
-                return
-            captured_packets_total += 1
-            with cv:
-                if len(dq) >= dq.maxlen:
-                    dropped_queue += 1
-                else:
-                    dq.append(data)
-                    enqueued_packets += 1
-                    cv.notify()
-
         try:
             while not stop:
                 try:
-                    cap.dispatch(8192, cb)
+                    _hdr, data = cap.next()
+                    if not data:
+                        continue
+                    captured_packets_total += 1
+                    with cv:
+                        if len(dq) >= dq.maxlen:
+                            dropped_queue += 1
+                        else:
+                            dq.append(data)
+                            enqueued_packets += 1
+                            cv.notify()
                 except Exception:
                     pass
         finally:
@@ -123,9 +119,9 @@ def main():
 
         while True:
             with cv:
-                while not dq and not (stop and producer_done):
+                while not dq and not stop:
                     cv.wait(timeout=0.05)
-                if not dq and stop and producer_done:
+                if not dq and stop:
                     break
                 frame = dq.popleft() if dq else None
 
@@ -175,7 +171,7 @@ def main():
 
     t0 = time.perf_counter()
     pth = threading.Thread(target=producer, daemon=True)
-    consumers = [threading.Thread(target=consumer, daemon=True) for _ in range(2)]
+    consumers = [threading.Thread(target=consumer, daemon=True)]
     pth.start()
     for c in consumers:
         c.start()
@@ -196,7 +192,7 @@ def main():
             qlen = len(dq)
         with handled_lock:
             handled_now = handled_packets
-        if producer_done and qlen == 0 and handled_now >= enqueued_packets:
+        if qlen == 0 and handled_now >= enqueued_packets:
             break
         time.sleep(0.01)
 
