@@ -16,7 +16,6 @@ from common_http import start_http_server, generate_http_load
 
 GET_RE = re.compile(br'GET /bench\?id=(\d+)')
 
-# Linux packet socket constants
 SOL_PACKET = 263
 PACKET_VERSION = 10
 PACKET_RX_RING = 5
@@ -34,7 +33,7 @@ def parse_ipv4_tcp_http_payload(frame: bytes, port: int):
     ihl = (frame[ip_off] & 0x0F) * 4
     if len(frame) < ip_off + ihl + 20:
         return None
-    if frame[ip_off + 9] != 6:  # TCP
+    if frame[ip_off + 9] != 6:
         return None
     tcp_off = ip_off + ihl
     dst_port = int.from_bytes(frame[tcp_off + 2:tcp_off + 4], 'big')
@@ -59,12 +58,10 @@ def main():
     server = start_http_server(args.host, args.port)
 
     s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003))
-
-    # TPACKET_V3 ring setup
     s.setsockopt(SOL_PACKET, PACKET_VERSION, struct.pack('I', TPACKET_V3))
 
-    block_size = 1 << 20   # 1MB
-    block_nr = 16          # 16MB total ring
+    block_size = 1 << 20
+    block_nr = 16
     frame_size = 2048
     frame_nr = (block_size * block_nr) // frame_size
     retire_tov = 64
@@ -76,55 +73,65 @@ def main():
     ring_len = block_size * block_nr
     mm = mmap.mmap(s.fileno(), ring_len, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE)
 
-    pkt_q: queue.Queue = queue.Queue(maxsize=30000)
+    pkt_q: queue.Queue = queue.Queue(maxsize=50000)
     ids = set()
     responses = 0
     dropped = 0
+    enqueued = 0
+    handled = 0
     stop = False
+    producer_done = False
+    lock = threading.Lock()
 
     def producer():
-        nonlocal dropped
+        nonlocal dropped, enqueued, producer_done
         blk = 0
-        end_time = time.perf_counter() + args.duration + 1.5
-        while not stop and time.perf_counter() < end_time:
-            base = blk * block_size
-            block_status = struct.unpack_from('<I', mm, base + 8)[0]
-            if (block_status & TP_STATUS_USER) == 0:
+        try:
+            while not stop:
+                base = blk * block_size
+                block_status = struct.unpack_from('<I', mm, base + 8)[0]
+                if (block_status & TP_STATUS_USER) == 0:
+                    blk = (blk + 1) % block_nr
+                    time.sleep(0.0002)
+                    continue
+
+                num_pkts = struct.unpack_from('<I', mm, base + 12)[0]
+                off_first = struct.unpack_from('<I', mm, base + 16)[0]
+                pkt_off = base + off_first
+
+                for _ in range(num_pkts):
+                    tp_next_offset = struct.unpack_from('<I', mm, pkt_off + 0)[0]
+                    tp_snaplen = struct.unpack_from('<I', mm, pkt_off + 12)[0]
+                    tp_mac = struct.unpack_from('<H', mm, pkt_off + 24)[0]
+
+                    frame_off = pkt_off + tp_mac
+                    frame = mm[frame_off: frame_off + tp_snaplen]
+                    try:
+                        pkt_q.put_nowait(bytes(frame))
+                        enqueued += 1
+                    except queue.Full:
+                        dropped += 1
+
+                    if tp_next_offset == 0:
+                        break
+                    pkt_off += tp_next_offset
+
+                struct.pack_into('<I', mm, base + 8, 0)
                 blk = (blk + 1) % block_nr
-                time.sleep(0.0005)
-                continue
-
-            num_pkts = struct.unpack_from('<I', mm, base + 12)[0]
-            off_first = struct.unpack_from('<I', mm, base + 16)[0]
-            pkt_off = base + off_first
-
-            for _ in range(num_pkts):
-                tp_next_offset = struct.unpack_from('<I', mm, pkt_off + 0)[0]
-                tp_snaplen = struct.unpack_from('<I', mm, pkt_off + 12)[0]
-                tp_mac = struct.unpack_from('<H', mm, pkt_off + 24)[0]
-
-                frame_off = pkt_off + tp_mac
-                frame = mm[frame_off: frame_off + tp_snaplen]
-                try:
-                    pkt_q.put_nowait(bytes(frame))
-                except queue.Full:
-                    dropped += 1
-
-                if tp_next_offset == 0:
-                    break
-                pkt_off += tp_next_offset
-
-            # release block back to kernel
-            struct.pack_into('<I', mm, base + 8, 0)
-            blk = (blk + 1) % block_nr
+        finally:
+            producer_done = True
 
     def consumer():
-        nonlocal responses
-        while not stop or not pkt_q.empty():
+        nonlocal responses, handled
+        while True:
             try:
                 frame = pkt_q.get(timeout=0.05)
             except queue.Empty:
+                if producer_done and pkt_q.empty():
+                    break
                 continue
+            with lock:
+                handled += 1
             payload = parse_ipv4_tcp_http_payload(frame, args.port)
             if payload is None:
                 continue
@@ -141,20 +148,27 @@ def main():
 
     time.sleep(0.3)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
-    time.sleep(0.5)
 
     stop = True
-    pth.join(timeout=3)
-    cth.join(timeout=3)
+    pth.join(timeout=5)
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if pkt_q.empty() and handled >= enqueued and producer_done:
+            break
+        time.sleep(0.01)
+
+    cth.join(timeout=5)
     t1 = time.perf_counter()
 
-    mm.close()
-    s.close()
-    server.shutdown()
+    mm.close(); s.close(); server.shutdown()
 
     result = {
         'tool': 'rawsocket-http-tpacketv3',
         'requests_ok': requests_ok,
+        'enqueued_packets': enqueued,
+        'handled_packets': handled,
+        'unhandled_packets': max(0, enqueued - handled),
         'http_get_seen': len(ids),
         'http_200_seen': responses,
         'capture_drop_queue': dropped,

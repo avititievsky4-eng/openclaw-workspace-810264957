@@ -17,19 +17,28 @@ GET_RE = re.compile(br'GET /bench\?id=(\d+)')
 
 
 def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
-    pkt_q: queue.Queue = queue.Queue(maxsize=20000)
+    pkt_q: queue.Queue = queue.Queue(maxsize=30000)
     seen = set()
     responses = 0
     stop = False
     dropped = 0
+    enqueued = 0
+    handled = 0
+    done_sniff = False
+
+    lock = threading.Lock()
 
     def consumer():
-        nonlocal responses
-        while not stop or not pkt_q.empty():
+        nonlocal responses, handled
+        while True:
             try:
                 data = pkt_q.get(timeout=0.05)
             except queue.Empty:
+                if done_sniff and pkt_q.empty():
+                    break
                 continue
+            with lock:
+                handled += 1
             m = GET_RE.search(data)
             if m:
                 seen.add(int(m.group(1)))
@@ -40,18 +49,28 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
     cth.start()
 
     def on_pkt(pkt):
-        nonlocal dropped
+        nonlocal dropped, enqueued
         if Raw in pkt:
             data = bytes(pkt[Raw].load)
             try:
                 pkt_q.put_nowait(data)
+                enqueued += 1
             except queue.Full:
                 dropped += 1
 
     sniff(iface=iface, filter=f'tcp port {port}', prn=on_pkt, store=False, timeout=run_for)
+    done_sniff = True
+
+    # wait for full drain
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if pkt_q.empty() and handled >= enqueued:
+            break
+        time.sleep(0.01)
+
     stop = True
-    cth.join(timeout=3)
-    q.put((len(seen), responses, dropped))
+    cth.join(timeout=5)
+    q.put((len(seen), responses, dropped, enqueued, handled))
 
 
 def main():
@@ -71,14 +90,17 @@ def main():
     p.start()
     time.sleep(0.3)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
-    p.join(timeout=10)
+    p.join(timeout=20)
     t1 = time.perf_counter()
     server.shutdown()
 
-    seen, responses, dropped = q.get() if not q.empty() else (0, 0, 0)
+    seen, responses, dropped, enqueued, handled = q.get() if not q.empty() else (0, 0, 0, 0, 0)
     result = {
         'tool': 'scapy-http',
         'requests_ok': requests_ok,
+        'enqueued_packets': enqueued,
+        'handled_packets': handled,
+        'unhandled_packets': max(0, enqueued - handled),
         'http_get_seen': seen,
         'http_200_seen': responses,
         'capture_drop_queue': dropped,

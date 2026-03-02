@@ -30,33 +30,46 @@ def main():
     s.bind((args.iface, 0))
     s.settimeout(0.01)
 
-    pkt_q: queue.Queue = queue.Queue(maxsize=20000)
+    pkt_q: queue.Queue = queue.Queue(maxsize=40000)
     ids = set()
     responses = 0
     dropped = 0
+    enqueued = 0
+    handled = 0
     stop = False
+    producer_done = False
+
+    lock = threading.Lock()
 
     def producer():
-        nonlocal dropped
-        while not stop:
-            try:
-                frame = s.recv(65535)
+        nonlocal dropped, enqueued, producer_done
+        try:
+            while not stop:
                 try:
-                    pkt_q.put_nowait(frame)
-                except queue.Full:
-                    dropped += 1
-            except TimeoutError:
-                pass
-            except Exception:
-                pass
+                    frame = s.recv(65535)
+                    try:
+                        pkt_q.put_nowait(frame)
+                        enqueued += 1
+                    except queue.Full:
+                        dropped += 1
+                except TimeoutError:
+                    pass
+                except Exception:
+                    pass
+        finally:
+            producer_done = True
 
     def consumer():
-        nonlocal responses
-        while not stop or not pkt_q.empty():
+        nonlocal responses, handled
+        while True:
             try:
                 frame = pkt_q.get(timeout=0.05)
             except queue.Empty:
+                if producer_done and pkt_q.empty():
+                    break
                 continue
+            with lock:
+                handled += 1
             m = GET_RE.search(frame)
             if m:
                 ids.add(int(m.group(1)))
@@ -69,9 +82,17 @@ def main():
     pth.start(); cth.start()
     time.sleep(0.3)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
-    time.sleep(0.4)
+
     stop = True
-    pth.join(timeout=2); cth.join(timeout=3)
+    pth.join(timeout=5)
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if pkt_q.empty() and handled >= enqueued and producer_done:
+            break
+        time.sleep(0.01)
+
+    cth.join(timeout=5)
     t1 = time.perf_counter()
 
     s.close()
@@ -79,6 +100,9 @@ def main():
     result = {
         'tool': 'rawsocket-http',
         'requests_ok': requests_ok,
+        'enqueued_packets': enqueued,
+        'handled_packets': handled,
+        'unhandled_packets': max(0, enqueued - handled),
         'http_get_seen': len(ids),
         'http_200_seen': responses,
         'capture_drop_queue': dropped,

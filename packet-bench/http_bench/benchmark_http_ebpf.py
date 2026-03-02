@@ -33,18 +33,23 @@ def main():
     t0 = time.perf_counter()
     p = subprocess.Popen(['bpftrace', '-e', prog], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    out_q: queue.Queue = queue.Queue(maxsize=10000)
+    qout: queue.Queue = queue.Queue(maxsize=20000)
+    enqueued = 0
+    handled = 0
+    dropped = 0
     stop = False
 
     def producer(stream):
+        nonlocal enqueued, dropped
         while not stop:
             line = stream.readline()
             if not line:
                 break
             try:
-                out_q.put_nowait(line)
+                qout.put_nowait(line)
+                enqueued += 1
             except queue.Full:
-                pass
+                dropped += 1
 
     pth1 = threading.Thread(target=producer, args=(p.stdout,), daemon=True)
     pth2 = threading.Thread(target=producer, args=(p.stderr,), daemon=True)
@@ -52,22 +57,28 @@ def main():
 
     time.sleep(0.35)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
-    time.sleep(0.4)
 
     stop = True
     p.send_signal(signal.SIGINT)
     try:
         out_rem, err_rem = p.communicate(timeout=5)
     except subprocess.TimeoutExpired:
-        p.kill()
-        out_rem, err_rem = p.communicate(timeout=3)
+        p.kill(); out_rem, err_rem = p.communicate(timeout=3)
 
-    pth1.join(timeout=2); pth2.join(timeout=2)
+    pth1.join(timeout=3); pth2.join(timeout=3)
 
-    text_parts = []
-    while not out_q.empty():
-        text_parts.append(out_q.get())
-    text = ''.join(text_parts) + (out_rem or '') + (err_rem or '')
+    # drain queue fully
+    parts = []
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        try:
+            line = qout.get_nowait()
+            parts.append(line)
+            handled += 1
+        except queue.Empty:
+            break
+
+    text = ''.join(parts) + (out_rem or '') + (err_rem or '')
     sessions = 0
     m = re.search(r'@http_sessions:\s*(\d+)', text)
     if m:
@@ -79,6 +90,10 @@ def main():
     result = {
         'tool': 'ebpf-http-session',
         'requests_ok': requests_ok,
+        'enqueued_packets': enqueued,
+        'handled_packets': handled,
+        'unhandled_packets': max(0, enqueued - handled),
+        'capture_drop_queue': dropped,
         'http_sessions_established': sessions,
         'session_to_request_ratio': (sessions / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,

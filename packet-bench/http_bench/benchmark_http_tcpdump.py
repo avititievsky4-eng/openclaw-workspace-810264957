@@ -31,30 +31,43 @@ def main():
     t0 = time.perf_counter()
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors='ignore')
 
-    line_q: queue.Queue = queue.Queue(maxsize=50000)
+    line_q: queue.Queue = queue.Queue(maxsize=100000)
     ids = set()
     responses = 0
     dropped = 0
+    enqueued = 0
+    handled = 0
     stop = False
+    producer_done = False
+
+    lock = threading.Lock()
 
     def producer():
-        nonlocal dropped
-        while not stop:
-            line = p.stdout.readline() if p.stdout else ''
-            if not line:
-                break
-            try:
-                line_q.put_nowait(line)
-            except queue.Full:
-                dropped += 1
+        nonlocal dropped, enqueued, producer_done
+        try:
+            while not stop:
+                line = p.stdout.readline() if p.stdout else ''
+                if not line:
+                    break
+                try:
+                    line_q.put_nowait(line)
+                    enqueued += 1
+                except queue.Full:
+                    dropped += 1
+        finally:
+            producer_done = True
 
     def consumer():
-        nonlocal responses
-        while not stop or not line_q.empty():
+        nonlocal responses, handled
+        while True:
             try:
                 line = line_q.get(timeout=0.05)
             except queue.Empty:
+                if producer_done and line_q.empty():
+                    break
                 continue
+            with lock:
+                handled += 1
             m = GET_RE.search(line)
             if m:
                 ids.add(int(m.group(1)))
@@ -67,7 +80,6 @@ def main():
 
     time.sleep(0.4)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
-    time.sleep(0.6)
 
     stop = True
     p.send_signal(signal.SIGINT)
@@ -76,7 +88,15 @@ def main():
     except subprocess.TimeoutExpired:
         p.kill(); p.wait(timeout=3)
 
-    pth.join(timeout=2); cth.join(timeout=3)
+    pth.join(timeout=5)
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if line_q.empty() and handled >= enqueued and producer_done:
+            break
+        time.sleep(0.01)
+
+    cth.join(timeout=5)
 
     t1 = time.perf_counter()
     server.shutdown()
@@ -84,6 +104,9 @@ def main():
     result = {
         'tool': 'tcpdump-http',
         'requests_ok': requests_ok,
+        'enqueued_packets': enqueued,
+        'handled_packets': handled,
+        'unhandled_packets': max(0, enqueued - handled),
         'http_get_seen': len(ids),
         'http_200_seen': responses,
         'capture_drop_queue': dropped,
