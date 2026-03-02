@@ -29,7 +29,7 @@ def main():
     cap = pcapy.open_live(args.iface, 262144, 1, 0)
     cap.setfilter(f'tcp port {args.port}')
 
-    pkt_q: queue.Queue = queue.Queue(maxsize=20000)
+    pkt_q: queue.Queue = queue.Queue(maxsize=100000)
     seen = set()
     responses = 0
     dropped = 0
@@ -37,20 +37,29 @@ def main():
 
     def producer():
         nonlocal dropped
+
+        def cb(_hdr, data):
+            nonlocal dropped
+            if not data:
+                return
+            try:
+                pkt_q.put_nowait(data)
+            except queue.Full:
+                dropped += 1
+
         while not stop:
             try:
-                _hdr, data = cap.next()
-                if not data:
-                    continue
-                try:
-                    pkt_q.put_nowait(data)
-                except queue.Full:
-                    dropped += 1
+                cap.dispatch(4096, cb)
             except Exception:
                 pass
 
+    seen_lock = threading.Lock()
+    resp_lock = threading.Lock()
+
     def consumer():
         nonlocal responses
+        local_seen = set()
+        local_resp = 0
         while not stop or not pkt_q.empty():
             try:
                 data = pkt_q.get(timeout=0.05)
@@ -58,19 +67,30 @@ def main():
                 continue
             m = GET_RE.search(data)
             if m:
-                seen.add(int(m.group(1)))
+                local_seen.add(int(m.group(1)))
             if b'HTTP/1.' in data and b' 200 ' in data:
-                responses += 1
+                local_resp += 1
+
+        if local_seen:
+            with seen_lock:
+                seen.update(local_seen)
+        if local_resp:
+            with resp_lock:
+                responses += local_resp
 
     t0 = time.perf_counter()
     pth = threading.Thread(target=producer, daemon=True)
-    cth = threading.Thread(target=consumer, daemon=True)
-    pth.start(); cth.start()
+    consumers = [threading.Thread(target=consumer, daemon=True) for _ in range(2)]
+    pth.start()
+    for c in consumers:
+        c.start()
     time.sleep(0.3)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     time.sleep(0.5)
     stop = True
-    pth.join(timeout=2); cth.join(timeout=3)
+    pth.join(timeout=2)
+    for c in consumers:
+        c.join(timeout=3)
     t1 = time.perf_counter()
     server.shutdown()
 
