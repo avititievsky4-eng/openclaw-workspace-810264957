@@ -22,11 +22,12 @@ LIBPCAP_JSON=$(run_json libpcap "$BASE/libpcap_project/.venv312/bin/python" "$BA
 TCPDUMP_JSON=$(run_json tcpdump python3 "$BASE/http_bench/benchmark_http_tcpdump.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
 RAWSOCK_JSON=$(run_json rawsocket python3 "$BASE/http_bench/benchmark_http_rawsocket.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
 RAWSOCK_TP_JSON=$(run_json rawsocket_tpacketv3 python3 "$BASE/http_bench/benchmark_http_rawsocket_tpacketv3.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
-EBPF_JSON=$(run_json ebpf python3 "$BASE/http_bench/benchmark_http_ebpf.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
+PYPCAP_JSON=$(run_json pypcap "$BASE/pypcap_project/.venv311/bin/python" "$BASE/http_bench/benchmark_http_pypcap.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
+EBPF_JSON=$(run_json ebpf /usr/bin/python3 "$BASE/http_bench/benchmark_http_ebpf.py" --duration "$DURATION" --workers "$WORKERS" --port "$PORT")
 
-SCAPY_JSON="$SCAPY_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" RAWSOCK_TP_JSON="$RAWSOCK_TP_JSON" EBPF_JSON="$EBPF_JSON" python3 - <<'PY'
+SCAPY_JSON="$SCAPY_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" RAWSOCK_TP_JSON="$RAWSOCK_TP_JSON" PYPCAP_JSON="$PYPCAP_JSON" EBPF_JSON="$EBPF_JSON" python3 - <<'PY'
 import json, os
-files=[os.environ['SCAPY_JSON'],os.environ['LIBPCAP_JSON'],os.environ['TCPDUMP_JSON'],os.environ['RAWSOCK_JSON'],os.environ['RAWSOCK_TP_JSON'],os.environ['EBPF_JSON']]
+files=[os.environ['SCAPY_JSON'],os.environ['LIBPCAP_JSON'],os.environ['TCPDUMP_JSON'],os.environ['RAWSOCK_JSON'],os.environ['RAWSOCK_TP_JSON'],os.environ['PYPCAP_JSON'],os.environ['EBPF_JSON']]
 rows=[json.load(open(p)) for p in files]
 rows_l7=[r for r in rows if 'http_get_seen' in r]
 rows_l7.sort(key=lambda r:r['http_get_seen'], reverse=True)
