@@ -25,7 +25,7 @@ def main():
     args = ap.parse_args()
 
     server = start_http_server(args.host, args.port)
-    cap = pcapy.open_live(args.iface, 65535, 1, 1)
+    cap = pcapy.open_live(args.iface, 262144, 1, 0)
     cap.setfilter(f'tcp port {args.port}')
 
     seen = set()

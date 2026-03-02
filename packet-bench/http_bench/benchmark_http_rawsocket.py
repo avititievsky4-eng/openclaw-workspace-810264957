@@ -25,8 +25,9 @@ def main():
 
     server = start_http_server(args.host, args.port)
     s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(3))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
     s.bind((args.iface, 0))
-    s.settimeout(0.02)
+    s.settimeout(0.01)
 
     ids = set()
     responses = 0

@@ -24,25 +24,34 @@ def main():
     args = ap.parse_args()
 
     server = start_http_server(args.host, args.port)
+    pcap = f'/tmp/http_bench_{int(time.time()*1000)}.pcap'
 
-    cmd = ['tcpdump', '-i', args.iface, '-n', '-s0', '-A', '-l', f'tcp port {args.port}']
+    # Optimized tcpdump capture: large buffer + write pcap (no stdout bottleneck).
+    cmd = ['tcpdump', '-i', args.iface, '-n', '-s0', '-B', '4096', '-w', pcap, f'tcp port {args.port}']
     t0 = time.perf_counter()
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors='ignore')
+    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
 
     time.sleep(0.4)
     requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     time.sleep(0.6)
 
     p.send_signal(signal.SIGINT)
-    out = ''
     try:
-        out, _ = p.communicate(timeout=6)
+        p.wait(timeout=6)
     except subprocess.TimeoutExpired:
         p.kill()
-        out, _ = p.communicate()
+        p.wait(timeout=3)
+
+    # Offline parse from pcap to ASCII using tcpdump -A -r
+    decode = subprocess.run(['tcpdump', '-A', '-n', '-r', pcap], capture_output=True, text=True, errors='ignore')
+    out = decode.stdout or ''
 
     ids = set(int(m.group(1)) for m in GET_RE.finditer(out))
     responses = out.count('HTTP/1.0 200 OK') + out.count('HTTP/1.1 200 OK')
+
+    # cleanup
+    subprocess.run(['rm', '-f', pcap], check=False)
+
     t1 = time.perf_counter()
     server.shutdown()
 
