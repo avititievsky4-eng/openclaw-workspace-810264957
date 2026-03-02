@@ -15,16 +15,17 @@ BASE="$(dirname "$0")"
 OUTDIR="$BASE/results"
 mkdir -p "$OUTDIR"
 
+if [[ $EUID -ne 0 ]]; then
+  echo "[ERROR] Please run as root: sudo ./run_sctp_compare_all.sh ..." >&2
+  exit 1
+fi
+
 run_json () {
   local name="$1"
   shift
   local out="$OUTDIR/sctp_${name}_${DURATION}s.json"
   echo "[+] Running $name SCTP benchmark..." >&2
-  if [[ $EUID -eq 0 ]]; then
-    "$@" > "$out"
-  else
-    sudo "$@" > "$out"
-  fi
+  "$@" > "$out"
   echo "$out"
 }
 
