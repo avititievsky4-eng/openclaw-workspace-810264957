@@ -24,10 +24,15 @@ TCPDUMP_JSON="$TCPDUMP_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" RAWSOCK_JSON="$RAWSOCK
 import json, os
 files=[os.environ['TCPDUMP_JSON'], os.environ['LIBPCAP_JSON'], os.environ['RAWSOCK_JSON']]
 rows=[json.load(open(p)) for p in files]
-rows.sort(key=lambda r:r['capture_ratio'], reverse=True)
+for r in rows:
+    r['_score'] = r.get('capture_ratio_normalized', r['capture_ratio'])
+rows.sort(key=lambda r:r['_score'], reverse=True)
 print('\n=== SCTP capture results ===')
 for r in rows:
-    print(f"{r['tool']}: sent={r['sent']:,} captured={r['captured']:,} ratio={r['capture_ratio']:.2%}")
+    if 'captured_normalized' in r:
+        print(f"{r['tool']}: sent={r['sent']:,} captured={r['captured']:,} normalized={r['captured_normalized']:,} ratio={r['capture_ratio']:.2%} normalized_ratio={r['capture_ratio_normalized']:.2%}")
+    else:
+        print(f"{r['tool']}: sent={r['sent']:,} captured={r['captured']:,} ratio={r['capture_ratio']:.2%}")
 print('\nWinner:', rows[0]['tool'])
 PY
 

@@ -87,11 +87,16 @@ def main():
     cth.join(timeout=3)
     s.close()
 
+    # loopback often reports each packet twice at AF_PACKET level.
+    normalized = handled // 2 if args.iface == 'lo' else handled
+
     print(json.dumps({
         'tool': 'rawsocket-sctp',
         'sent': sent,
         'captured': handled,
+        'captured_normalized': normalized,
         'capture_ratio': (handled/sent) if sent else 0.0,
+        'capture_ratio_normalized': (normalized/sent) if sent else 0.0,
     }, indent=2))
 
 
