@@ -18,23 +18,17 @@ def main():
     ap.add_argument('--generator', default='/home/avi/.openclaw/workspace-810264957/packet-bench/sctp_bench/generate_sctp_scapy.py')
     args = ap.parse_args()
 
-    # eBPF socket filter: accept IPv4 SCTP only (IP proto 132)
     bpf_text = r'''
 #include <uapi/linux/bpf.h>
-#include <linux/if_ether.h>
-#include <linux/ip.h>
 
 int sctp_filter(struct __sk_buff *skb) {
     u8 proto = 0;
-
-    // Ethernet + IPv4 protocol offset: 14 + 9
+    // Eth(14) + IPv4 proto byte(9)
     if (bpf_skb_load_bytes(skb, 23, &proto, 1) < 0)
         return 0;
-
     if (proto == 132)
-        return -1;   // pass packet to socket
-
-    return 0;        // drop
+        return -1;
+    return 0;
 }
 '''
 
@@ -44,36 +38,51 @@ int sctp_filter(struct __sk_buff *skb) {
 
     sock = socket.fromfd(fn.sock, socket.PF_PACKET, socket.SOCK_RAW, socket.IPPROTO_IP)
     sock.setblocking(False)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
 
-    # Start traffic generator
-    time.sleep(0.2)
-    gen = subprocess.run([
+    gen_cmd = [
         args.scapy_python, args.generator,
         '--iface', args.iface,
         '--duration', str(args.duration),
         '--payload', str(args.payload),
         '--threads', str(args.gen_threads),
         '--mode', 'data'
-    ], capture_output=True, text=True)
+    ]
 
-    sent = 0
-    try:
-        sent = json.loads(gen.stdout).get('sent', 0)
-    except Exception:
-        pass
+    gen = subprocess.Popen(gen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    # Drain accepted SCTP packets from socket
     captured = 0
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
+    # Capture concurrently while generator runs
+    while gen.poll() is None:
         try:
-            _pkt = os.read(fn.sock, 65535)
-            if _pkt:
+            pkt = os.read(fn.sock, 65535)
+            if pkt:
                 captured += 1
         except BlockingIOError:
-            time.sleep(0.001)
+            time.sleep(0.0002)
         except Exception:
             break
+
+    # Drain tail
+    drain_deadline = time.time() + 1.5
+    while time.time() < drain_deadline:
+        try:
+            pkt = os.read(fn.sock, 65535)
+            if pkt:
+                captured += 1
+                continue
+            break
+        except BlockingIOError:
+            time.sleep(0.0002)
+        except Exception:
+            break
+
+    out, _err = gen.communicate(timeout=5)
+    sent = 0
+    try:
+        sent = json.loads(out).get('sent', 0)
+    except Exception:
+        pass
 
     normalized = captured // 2 if args.iface == 'lo' else captured
 
@@ -84,7 +93,7 @@ int sctp_filter(struct __sk_buff *skb) {
         'captured_normalized': normalized,
         'capture_ratio': (captured / sent) if sent else 0.0,
         'capture_ratio_normalized': (normalized / sent) if sent else 0.0,
-        'note': 'eBPF SOCKET_FILTER attached to raw socket; filters SCTP in-kernel.'
+        'note': 'eBPF SOCKET_FILTER with concurrent recv loop and enlarged RCVBUF.'
     }, indent=2))
 
 
