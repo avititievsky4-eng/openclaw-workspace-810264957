@@ -1,26 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import multiprocessing as mp
 import socket
+import threading
 import time
 import pcapy  # type: ignore
-
-
-def capture_worker(iface: str, bpf_filter: str, run_for: float, q: mp.Queue):
-    cap = pcapy.open_live(iface, 65535, 1, 1)
-    cap.setfilter(bpf_filter)
-    count = 0
-
-    def cb(_hdr, _data):
-        nonlocal count
-        count += 1
-
-    deadline = time.perf_counter() + run_for
-    while time.perf_counter() < deadline:
-        cap.dispatch(1000, cb)
-
-    q.put(count)
 
 
 def send_packets(dst_ip: str, dst_port: int, duration: float, payload_size: int):
@@ -43,19 +27,33 @@ def main():
     ap.add_argument("--payload", type=int, default=64)
     args = ap.parse_args()
 
-    q: mp.Queue = mp.Queue()
     bpf = f"udp and dst port {args.port}"
-    capture_time = args.duration + 1.0
-    p = mp.Process(target=capture_worker, args=(args.iface, bpf, capture_time, q), daemon=True)
+    cap = pcapy.open_live(args.iface, 65535, 1, 1)
+    cap.setfilter(bpf)
+
+    captured = 0
+    stop = False
+
+    def capture_loop():
+        nonlocal captured, stop
+        while not stop:
+            try:
+                hdr, _pkt = cap.next()
+                if hdr:
+                    captured += 1
+            except Exception:
+                pass
 
     t0 = time.perf_counter()
-    p.start()
-    time.sleep(0.25)
+    th = threading.Thread(target=capture_loop, daemon=True)
+    th.start()
+    time.sleep(0.2)
     sent = send_packets("127.0.0.1", args.port, args.duration, args.payload)
-    p.join(timeout=10)
+    time.sleep(0.5)
+    stop = True
+    th.join(timeout=2)
     t1 = time.perf_counter()
 
-    captured = q.get() if not q.empty() else 0
     loss = max(0, sent - captured)
     result = {
         "tool": "libpcap(pcapy-ng)",
@@ -74,5 +72,4 @@ def main():
 
 
 if __name__ == "__main__":
-    mp.set_start_method("fork")
     main()
