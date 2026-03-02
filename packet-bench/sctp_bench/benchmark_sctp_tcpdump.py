@@ -18,7 +18,7 @@ def main():
     args = ap.parse_args()
 
     cap = subprocess.Popen(
-        ['tcpdump', '-i', args.iface, '-n', '-w', '/dev/null', 'sctp'],
+        ['tcpdump', '-i', args.iface, '-n', '-B', '16384', '-w', '/dev/null', 'sctp'],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
