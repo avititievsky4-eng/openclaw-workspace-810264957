@@ -11,6 +11,7 @@ from scapy.all import sniff, get_if_list  # type: ignore
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--iface', default='lo')
+    ap.add_argument('--dst', default='127.0.0.1')
     ap.add_argument('--duration', type=float, default=3.0)
     ap.add_argument('--payload', type=int, default=64)
     ap.add_argument('--gen-threads', type=int, default=1)
@@ -65,7 +66,7 @@ def main():
     pth.start(); cth.start()
 
     time.sleep(0.25)
-    gen_cmd = [args.scapy_python, args.generator, '--iface', str(args.iface), '--duration', str(args.duration), '--payload', str(args.payload), '--threads', str(args.gen_threads)]
+    gen_cmd = [args.scapy_python, args.generator, '--iface', str(args.iface), '--dst', str(args.dst), '--duration', str(args.duration), '--payload', str(args.payload), '--threads', str(args.gen_threads)]
     if args.gen_pps > 0:
         gen_cmd += ['--pps', str(args.gen_pps)]
     gen = subprocess.run(gen_cmd, capture_output=True, text=True)

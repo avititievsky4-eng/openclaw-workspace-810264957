@@ -6,6 +6,11 @@ PAYLOAD="${2:-64}"
 GEN_THREADS="${3:-1}"
 IFACE="${4:-eth0}"
 GEN_PPS="${5:-0}"
+DST="${6:-127.0.0.1}"
+if [[ "$IFACE" != "lo" && "$DST" == "127.0.0.1" ]]; then
+  DST=$(ip -4 -brief addr show "$IFACE" 2>/dev/null | awk '{print $3}' | cut -d/ -f1)
+  DST=${DST:-127.0.0.1}
+fi
 BASE="$(dirname "$0")"
 OUTDIR="$BASE/results"
 mkdir -p "$OUTDIR"
@@ -19,12 +24,12 @@ run_json () {
   echo "$out"
 }
 
-SCAPY_JSON=$(run_json scapy "$BASE/scapy_project/.venv312/bin/python" "$BASE/sctp_bench/benchmark_sctp_scapy.py" --iface "$IFACE" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
-TCPDUMP_JSON=$(run_json tcpdump python3 "$BASE/sctp_bench/benchmark_sctp_tcpdump.py" --iface "$IFACE" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
-LIBPCAP_JSON=$(run_json libpcap "$BASE/libpcap_project/.venv312/bin/python" "$BASE/sctp_bench/benchmark_sctp_libpcap.py" --iface "$IFACE" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
-PYPCAP_JSON=$(run_json pypcap "$BASE/pypcap_project/.venv311/bin/python" "$BASE/sctp_bench/benchmark_sctp_pypcap.py" --iface "$IFACE" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
-RAWSOCK_JSON=$(run_json rawsocket python3 "$BASE/sctp_bench/benchmark_sctp_rawsocket.py" --iface "$IFACE" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
-EBPF_JSON=$(run_json ebpf /usr/bin/python3 "$BASE/sctp_bench/benchmark_sctp_ebpf.py" --iface "$IFACE" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
+SCAPY_JSON=$(run_json scapy "$BASE/scapy_project/.venv312/bin/python" "$BASE/sctp_bench/benchmark_sctp_scapy.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
+TCPDUMP_JSON=$(run_json tcpdump python3 "$BASE/sctp_bench/benchmark_sctp_tcpdump.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
+LIBPCAP_JSON=$(run_json libpcap "$BASE/libpcap_project/.venv312/bin/python" "$BASE/sctp_bench/benchmark_sctp_libpcap.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
+PYPCAP_JSON=$(run_json pypcap "$BASE/pypcap_project/.venv311/bin/python" "$BASE/sctp_bench/benchmark_sctp_pypcap.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
+RAWSOCK_JSON=$(run_json rawsocket python3 "$BASE/sctp_bench/benchmark_sctp_rawsocket.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
+EBPF_JSON=$(run_json ebpf /usr/bin/python3 "$BASE/sctp_bench/benchmark_sctp_ebpf.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS")
 
 SCAPY_JSON="$SCAPY_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" PYPCAP_JSON="$PYPCAP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" EBPF_JSON="$EBPF_JSON" python3 - <<'PY'
 import json, os

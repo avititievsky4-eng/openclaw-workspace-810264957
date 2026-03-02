@@ -37,10 +37,10 @@ def main():
 
     cache_dir = Path('/tmp/sctp_replay_cache')
     cache_dir.mkdir(parents=True, exist_ok=True)
-    pcap_path = cache_dir / f'sctp_{args.payload}_{args.pcap_packets}.pcap'
+    pcap_path = cache_dir / f'sctp_{args.payload}_{args.pcap_packets}_{os.getpid()}.pcap'
 
-    if not pcap_path.exists():
-        build_pcap(str(pcap_path), args.dst, args.sport, args.dport, args.payload, args.pcap_packets)
+    # Always build fresh file to avoid stale/permission-mismatched cached DLT files.
+    build_pcap(str(pcap_path), args.dst, args.sport, args.dport, args.payload, args.pcap_packets)
 
     def run_once():
         speed_args = ['--topspeed'] if args.pps <= 0 else ['--pps', str(args.pps)]
@@ -70,6 +70,11 @@ def main():
             pass
         build_pcap(str(pcap_path), args.dst, args.sport, args.dport, args.payload, args.pcap_packets)
         sent, text = run_once()
+
+    try:
+        pcap_path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
     print(json.dumps({'sent': sent, 'generator': 'tcpreplay'}))
 

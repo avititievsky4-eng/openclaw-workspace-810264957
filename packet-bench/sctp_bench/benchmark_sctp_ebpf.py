@@ -12,6 +12,7 @@ from bcc import BPF  # type: ignore
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--iface', default='lo')
+    ap.add_argument('--dst', default='127.0.0.1')
     ap.add_argument('--duration', type=float, default=3.0)
     ap.add_argument('--payload', type=int, default=64)
     ap.add_argument('--gen-threads', type=int, default=1)
@@ -45,6 +46,7 @@ int sctp_filter(struct __sk_buff *skb) {
     gen_cmd = [
         args.scapy_python, args.generator,
         '--iface', args.iface,
+        '--dst', str(args.dst),
         '--duration', str(args.duration),
         '--payload', str(args.payload),
         '--threads', str(args.gen_threads)

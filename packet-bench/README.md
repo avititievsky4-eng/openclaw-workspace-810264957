@@ -50,7 +50,7 @@ cd packet-bench
 
 Example with fixed rate (the “~half Scapy” scenario):
 ```bash
-./run_sctp_compare_all.sh 3 512 1 eth0 10000
+./run_sctp_compare_all.sh 3 512 1 eth0 10000 192.168.86.47
 ```
 
 ## Notes
