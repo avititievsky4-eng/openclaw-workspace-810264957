@@ -32,6 +32,7 @@ def main():
     ap.add_argument('--threads', type=int, default=1)
     ap.add_argument('--iface', default='lo')
     ap.add_argument('--pcap-packets', type=int, default=2000)
+    ap.add_argument('--pps', type=int, default=0)
     args = ap.parse_args()
 
     cache_dir = Path('/tmp/sctp_replay_cache')
@@ -41,8 +42,9 @@ def main():
     if not pcap_path.exists():
         build_pcap(str(pcap_path), args.dst, args.sport, args.dport, args.payload, args.pcap_packets)
 
+    speed_args = ['--topspeed'] if args.pps <= 0 else ['--pps', str(args.pps)]
     cmd = [
-        'tcpreplay', '--intf1', args.iface, '--topspeed',
+        'tcpreplay', '--intf1', args.iface, *speed_args,
         '--loop', '999999', '--duration', str(max(1, int(args.duration))),
         str(pcap_path)
     ]
