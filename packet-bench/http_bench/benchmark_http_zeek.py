@@ -3,7 +3,7 @@ import argparse, json, os, shutil, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 
 def main():
@@ -37,7 +37,7 @@ def main():
         print(json.dumps({'tool':'zeek-http','requests_ok':requests_ok,
         'sessions_ok':sessions_ok,
         'load_trace_queue':load_trace_queue,
-        'load_trace_sessions':load_trace_sessions,'http_get_seen':0,'http_200_seen':0,'get_seen_ratio':0.0,'responses_seen_ratio':0.0,'unavailable':'zeek binary not found'}, indent=2))
+        'load_trace_sessions':load_trace_sessions,'http_get_seen':0,'sniff_session_files':{},'sniff_sessions_detected':0,'http_200_seen':0,'get_seen_ratio':0.0,'responses_seen_ratio':0.0,'unavailable':'zeek binary not found'}, indent=2))
         return
 
     outdir=tempfile.mkdtemp(prefix='http_zeek_')

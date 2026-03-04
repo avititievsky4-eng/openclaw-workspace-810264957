@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 from scapy.all import sniff, Raw  # type: ignore
 
 GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
@@ -70,7 +70,7 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
 
     stop = True
     cth.join(timeout=5)
-    q.put((len(seen), responses, dropped, enqueued, handled))
+    q.put((sorted(seen), responses, dropped, enqueued, handled))
 
 
 def main():
@@ -98,7 +98,9 @@ def main():
     t1 = time.perf_counter()
     server.shutdown()
 
-    seen, responses, dropped, enqueued, handled = q.get() if not q.empty() else (0, 0, 0, 0, 0)
+    seen_paths, responses, dropped, enqueued, handled = q.get() if not q.empty() else ([], 0, 0, 0, 0)
+    sniff_sessions = build_sniff_session_map(seen_paths)
+    seen = len(set(seen_paths))
     result = {
         'tool': 'scapy-http',
         'requests_ok': requests_ok,
@@ -109,6 +111,8 @@ def main():
         'handled_packets': handled,
         'unhandled_packets': max(0, enqueued - handled),
         'http_get_seen': seen,
+        'sniff_session_files': sniff_sessions,
+        'sniff_sessions_detected': len(sniff_sessions),
         'http_200_seen': responses,
         'capture_drop_queue': dropped,
         'get_seen_ratio': (seen / requests_ok) if requests_ok else 0.0,

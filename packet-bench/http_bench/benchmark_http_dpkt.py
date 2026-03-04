@@ -13,7 +13,7 @@ from pathlib import Path
 import dpkt  # type: ignore
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
 
@@ -109,6 +109,7 @@ def main():
     t1 = time.perf_counter()
     server.shutdown()
 
+    sniff_sessions = build_sniff_session_map(get_ids)
     result = {
         'tool': 'dpkt-http',
         'requests_ok': requests_ok,
@@ -116,6 +117,8 @@ def main():
         'load_trace_queue': load_trace_queue,
         'load_trace_sessions': load_trace_sessions,
         'http_get_seen': len(get_ids),
+        'sniff_session_files': sniff_sessions,
+        'sniff_sessions_detected': len(sniff_sessions),
         'http_200_seen': http200,
         'get_seen_ratio': (len(get_ids) / requests_ok) if requests_ok else 0.0,
         'responses_seen_ratio': (http200 / requests_ok) if requests_ok else 0.0,

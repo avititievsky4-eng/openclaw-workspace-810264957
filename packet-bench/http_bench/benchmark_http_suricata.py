@@ -3,7 +3,7 @@ import argparse, json, os, shutil, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 
 def main():
@@ -34,6 +34,7 @@ def main():
     subprocess.run(['suricata','-r',pcap,'-l',outdir],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
     eve=os.path.join(outdir,'eve.json')
     get_seen=0; rsp_seen=0
+    sniff_paths=[]
     if os.path.exists(eve):
         with open(eve,'r',errors='ignore') as f:
             for line in f:
@@ -43,9 +44,13 @@ def main():
                     h=j.get('http',{})
                     if str(h.get('http_method','')).upper()=='GET':
                         get_seen += 1
+                        u=str(h.get('url','') or '')
+                        if u:
+                            sniff_paths.append(u.lstrip('/'))
                     if str(h.get('status',''))=='200':
                         rsp_seen += 1
 
+    sniff_sessions=build_sniff_session_map(sniff_paths)
     try: os.remove(pcap)
     except: pass
     shutil.rmtree(outdir, ignore_errors=True)
@@ -57,6 +62,8 @@ def main():
         'load_trace_queue':load_trace_queue,
         'load_trace_sessions':load_trace_sessions,
         'http_get_seen':get_seen,
+        'sniff_session_files':sniff_sessions,
+        'sniff_sessions_detected':len(sniff_sessions),
         'http_200_seen':rsp_seen,
         'get_seen_ratio':(get_seen/requests_ok if requests_ok else 0.0),
         'responses_seen_ratio':(rsp_seen/requests_ok if requests_ok else 0.0),

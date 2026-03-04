@@ -3,7 +3,7 @@ import argparse, json, os, signal, subprocess, sys, time
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 
 def main():
@@ -31,9 +31,12 @@ def main():
         cap.kill(); cap.wait(timeout=3)
 
     get_out=subprocess.run(['tshark','-r',pcap,'-Y',f'http.request.method == "GET" && tcp.dstport == {args.port}','-T','fields','-e','frame.number'],capture_output=True,text=True)
+    uri_out=subprocess.run(['tshark','-r',pcap,'-Y',f'http.request.method == "GET" && tcp.dstport == {args.port}','-T','fields','-e','http.request.uri'],capture_output=True,text=True)
     rsp_out=subprocess.run(['tshark','-r',pcap,'-Y',f'http.response.code == 200 && tcp.srcport == {args.port}','-T','fields','-e','frame.number'],capture_output=True,text=True)
     get_seen=len([x for x in (get_out.stdout or '').splitlines() if x.strip()])
     rsp_seen=len([x for x in (rsp_out.stdout or '').splitlines() if x.strip()])
+    uri_paths=[x.strip().lstrip('/') for x in (uri_out.stdout or '').splitlines() if x.strip()]
+    sniff_sessions=build_sniff_session_map(uri_paths)
 
     try: os.remove(pcap)
     except: pass
@@ -45,6 +48,8 @@ def main():
         'load_trace_queue':load_trace_queue,
         'load_trace_sessions':load_trace_sessions,
         'http_get_seen':get_seen,
+        'sniff_session_files':sniff_sessions,
+        'sniff_sessions_detected':len(sniff_sessions),
         'http_200_seen':rsp_seen,
         'get_seen_ratio':(get_seen/requests_ok if requests_ok else 0.0),
         'responses_seen_ratio':(rsp_seen/requests_ok if requests_ok else 0.0),

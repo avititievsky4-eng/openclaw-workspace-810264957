@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 GET_RE = re.compile(r'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
 
@@ -105,6 +105,7 @@ def main():
     t1 = time.perf_counter()
     server.shutdown()
 
+    sniff_sessions = build_sniff_session_map(ids)
     result = {
         'tool': 'tcpdump-http',
         'requests_ok': requests_ok,
@@ -115,6 +116,8 @@ def main():
         'handled_packets': handled,
         'unhandled_packets': max(0, enqueued - handled),
         'http_get_seen': len(ids),
+        'sniff_session_files': sniff_sessions,
+        'sniff_sessions_detected': len(sniff_sessions),
         'http_200_seen': responses,
         'capture_drop_queue': dropped,
         'get_seen_ratio': (len(ids) / requests_ok) if requests_ok else 0.0,

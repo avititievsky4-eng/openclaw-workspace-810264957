@@ -12,7 +12,7 @@ from pathlib import Path
 import pcapy  # type: ignore
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
 
@@ -233,6 +233,7 @@ def main():
     t1 = time.perf_counter()
     server.shutdown()
 
+    sniff_sessions = build_sniff_session_map(seen_get_ids)
     result = {
         'tool': 'libpcap-http',
         'requests_ok': requests_ok,
@@ -245,6 +246,8 @@ def main():
         'unhandled_packets': max(0, enqueued_packets - handled_packets),
         'capture_drop_queue': dropped_queue,
         'http_get_seen': len(seen_get_ids),
+        'sniff_session_files': sniff_sessions,
+        'sniff_sessions_detected': len(sniff_sessions),
         'http_200_seen': http_200_seen,
         'get_seen_ratio': (len(seen_get_ids) / requests_ok) if requests_ok else 0.0,
         'responses_seen_ratio': (http_200_seen / requests_ok) if requests_ok else 0.0,

@@ -9,7 +9,7 @@ from pathlib import Path
 from bcc import BPF  # type: ignore
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 
 def main():

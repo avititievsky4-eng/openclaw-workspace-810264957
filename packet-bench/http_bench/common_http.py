@@ -8,6 +8,7 @@ from collections import defaultdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+import re
 
 
 IMG_COUNT = 20
@@ -74,6 +75,30 @@ def start_http_server(host: str, port: int):
 def _default_trace_dir():
     here = os.path.dirname(os.path.abspath(__file__))
     return os.path.abspath(os.path.join(here, '..', 'results', 'http_session_traces'))
+
+
+def build_sniff_session_map(paths):
+    """Build per-session loaded file map from sniffed HTTP request paths."""
+    sid_re = re.compile(r'sid=(\d+)')
+    sessions = defaultdict(list)
+    for p in paths or []:
+        if isinstance(p, (bytes, bytearray)):
+            p = p.decode('utf-8', errors='ignore')
+        m = sid_re.search(str(p))
+        if not m:
+            continue
+        sid = m.group(1)
+        sessions[sid].append(str(p))
+
+    payload = {
+        sid: {
+            'files': sorted(set(files)),
+            'loaded_count': len(set(files)),
+            'min20_ok': len(set(files)) >= 20,
+        }
+        for sid, files in sessions.items()
+    }
+    return payload
 
 
 def generate_http_load(host: str, port: int, duration: float, workers: int = 4, trace_dir: str | None = None):

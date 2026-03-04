@@ -11,7 +11,7 @@ from pathlib import Path
 import pcap  # type: ignore
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load
+from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
 
@@ -96,6 +96,7 @@ def main():
     t1 = time.perf_counter()
     server.shutdown()
 
+    sniff_sessions = build_sniff_session_map(ids)
     result = {
         'tool': 'pypcap-http',
         'requests_ok': requests_ok,
@@ -107,6 +108,8 @@ def main():
         'unhandled_packets': max(0, enq - handled),
         'capture_drop_queue': drop,
         'http_get_seen': len(ids),
+        'sniff_session_files': sniff_sessions,
+        'sniff_sessions_detected': len(sniff_sessions),
         'http_200_seen': responses,
         'get_seen_ratio': (len(ids) / requests_ok) if requests_ok else 0.0,
         'responses_seen_ratio': (responses / requests_ok) if requests_ok else 0.0,
