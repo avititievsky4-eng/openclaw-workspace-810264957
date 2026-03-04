@@ -79,6 +79,7 @@ def _default_trace_dir():
 
 # Generic helpers for session/file mapping
 def build_sniff_session_map(paths):
+    # Convert sniffed URI list into per-session -> loaded-files mapping.
     """Build per-session loaded file map from sniffed HTTP request paths."""
     sid_re = re.compile(r'sid=(\d+)')
     sessions = defaultdict(list)
@@ -103,6 +104,7 @@ def build_sniff_session_map(paths):
 
 
 def load_session_files_map(sessions_file: str):
+    # Read generator-produced sessions JSON and normalize into map form.
     """Load per-session file map from generator sessions trace JSON."""
     try:
         with open(sessions_file, 'r', encoding='utf-8') as f:
@@ -125,6 +127,7 @@ def load_session_files_map(sessions_file: str):
 
 # Shared long-load generator
 def generate_http_load(host: str, port: int, duration: float, workers: int = 4, trace_dir: str | None = None):
+    # Core long-load driver used by all HTTP benchmark implementations.
     """
     Long-load generator:
     - open /page?sid=X

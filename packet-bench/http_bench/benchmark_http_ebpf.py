@@ -18,6 +18,7 @@ from common_http import start_http_server, generate_http_load, load_session_file
 
 
 def main():
+    # Parse CLI arguments for benchmark runtime/capture options.
     ap = argparse.ArgumentParser()
     ap.add_argument('--host', default='127.0.0.1')
     ap.add_argument('--port', type=int, default=18080)
@@ -26,6 +27,7 @@ def main():
     args = ap.parse_args()
 
     server = start_http_server(args.host, args.port)
+    # Start local HTTP server that serves /page and /asset endpoints.
 
     # Use tracepoint program with minimal includes (no external bpftrace process).
     bpf_text = f"""
@@ -60,8 +62,11 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
 
     time.sleep(0.2)
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    # Generate long-load sessions: page + 20 assets per session.
     requests_ok = load_stats['requests_ok']
+    # Count successful HTTP responses from generator side.
     sessions_ok = load_stats.get('sessions_ok', 0)
+    # Count fully completed sessions (page + all assets).
     load_trace_queue = load_stats.get('queue_file', '')
     load_trace_sessions = load_stats.get('sessions_file', '')
     sniff_sessions = load_session_files_map(load_trace_sessions)
@@ -76,6 +81,7 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
     t1 = time.perf_counter()
     server.shutdown()
 
+    # Build final result object written to JSON by run_http_compare_all.sh.
     result = {
         'tool': 'ebpf-http-session',
         'requests_ok': requests_ok,

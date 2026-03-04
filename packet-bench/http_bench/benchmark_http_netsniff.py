@@ -12,6 +12,7 @@ from common_http import start_http_server, generate_http_load, build_sniff_sessi
 
 
 def main():
+    # Parse CLI arguments for benchmark runtime/capture options.
     ap=argparse.ArgumentParser()
     ap.add_argument('--iface', default='lo')
     ap.add_argument('--host', default='127.0.0.1')
@@ -19,14 +20,19 @@ def main():
     ap.add_argument('--duration', type=float, default=8.0)
     ap.add_argument('--workers', type=int, default=4)
     args=ap.parse_args()
+    # args now contains host/port/duration/workers/iface as relevant.
 
     server=start_http_server(args.host,args.port)
+    # Start local HTTP server that serves /page and /asset endpoints.
     pcap=f"/tmp/http_netsniff_{int(time.time()*1000)}.pcap"
     cap=subprocess.Popen(['netsniff-ng','--in',args.iface,'--out',pcap,'--silent','--no-promisc','--filter',f'tcp port {args.port}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
     t0=time.perf_counter(); time.sleep(0.4)
     load_stats=generate_http_load(args.host,args.port,args.duration,workers=args.workers)
+    # Generate long-load sessions: page + 20 assets per session.
     requests_ok=load_stats['requests_ok']
+    # Count successful HTTP responses from generator side.
     sessions_ok=load_stats.get('sessions_ok',0)
+    # Count fully completed sessions (page + all assets).
     load_trace_queue=load_stats.get('queue_file','')
     load_trace_sessions=load_stats.get('sessions_file','')
     time.sleep(0.5)
@@ -46,6 +52,7 @@ def main():
     try: os.remove(pcap)
     except: pass
     t1=time.perf_counter(); server.shutdown()
+    # Emit final structured result for this benchmark method.
     print(json.dumps({
         'tool':'netsniff-http',
         'requests_ok':requests_ok,

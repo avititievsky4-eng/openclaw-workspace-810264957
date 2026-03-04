@@ -53,6 +53,7 @@ def parse_ipv4_tcp(frame: bytes):
 
 
 def main():
+    # Parse CLI arguments for benchmark runtime/capture options.
     ap = argparse.ArgumentParser()
     ap.add_argument('--iface', default='lo')
     ap.add_argument('--host', default='127.0.0.1')
@@ -62,6 +63,7 @@ def main():
     args = ap.parse_args()
 
     server = start_http_server(args.host, args.port)
+    # Start local HTTP server that serves /page and /asset endpoints.
     cap = pcapy.open_live(args.iface, 262144, 1, 1)
     cap.setfilter(f'tcp port {args.port}')
 
@@ -208,8 +210,11 @@ def main():
 
     time.sleep(0.25)
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    # Generate long-load sessions: page + 20 assets per session.
     requests_ok = load_stats['requests_ok']
+    # Count successful HTTP responses from generator side.
     sessions_ok = load_stats.get('sessions_ok', 0)
+    # Count fully completed sessions (page + all assets).
     load_trace_queue = load_stats.get('queue_file', '')
     load_trace_sessions = load_stats.get('sessions_file', '')
 
@@ -239,6 +244,7 @@ def main():
     server.shutdown()
 
     sniff_sessions = build_sniff_session_map(seen_get_ids)
+    # Build final result object written to JSON by run_http_compare_all.sh.
     result = {
         'tool': 'libpcap-http',
         'requests_ok': requests_ok,
