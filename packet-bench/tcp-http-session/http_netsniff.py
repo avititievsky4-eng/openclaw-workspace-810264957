@@ -12,34 +12,99 @@ sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 
-def _run_tshark(cmd):
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    return p.stdout or ''
-
 def analyze_tcp_http_pcap_inline(pcap_path: str, server_port: int = 18080) -> dict:
-    """Inline TCP handshake + HTTP reassembly summary (no external Python file import)."""
+    """Native Python PCAP parse: TCP handshake counters + simple stream reassembly."""
+    import struct
     try:
-        syn = _run_tshark(['tshark','-r',pcap_path,'-Y',f'tcp.dstport == {server_port} && tcp.flags.syn == 1 && tcp.flags.ack == 0','-T','fields','-e','frame.number'])
-        synack = _run_tshark(['tshark','-r',pcap_path,'-Y',f'tcp.srcport == {server_port} && tcp.flags.syn == 1 && tcp.flags.ack == 1','-T','fields','-e','frame.number'])
-        ack = _run_tshark(['tshark','-r',pcap_path,'-Y',f'tcp.dstport == {server_port} && tcp.flags.syn == 0 && tcp.flags.ack == 1','-T','fields','-e','frame.number'])
+        syn_n = synack_n = ack_n = 0
+        c2s = {}
+        s2c = {}
 
-        syn_n = len([x for x in syn.splitlines() if x.strip()])
-        synack_n = len([x for x in synack.splitlines() if x.strip()])
-        ack_n = len([x for x in ack.splitlines() if x.strip()])
+        with open(pcap_path, 'rb') as f:
+            gh = f.read(24)
+            if len(gh) < 24:
+                return {'error': 'bad pcap global header'}
+            magic = gh[:4]
+            le = magic in (b'\xd4\xc3\xb2\xa1', b'\x4d\x3c\xb2\xa1')
+            ph_fmt = ('<' if le else '>') + 'IIII'
 
-        get_out = _run_tshark(['tshark','-r',pcap_path,'-Y',f'http.request.method == "GET" && tcp.dstport == {server_port}','-T','fields','-e','tcp.stream'])
-        ok_out = _run_tshark(['tshark','-r',pcap_path,'-Y',f'http.response.code == 200 && tcp.srcport == {server_port}','-T','fields','-e','tcp.stream'])
+            while True:
+                ph = f.read(16)
+                if len(ph) < 16:
+                    break
+                _ts_sec, _ts_usec, incl_len, _orig_len = struct.unpack(ph_fmt, ph)
+                pkt = f.read(incl_len)
+                if len(pkt) < 14 + 20:
+                    continue
 
-        get_streams = {x.strip() for x in get_out.splitlines() if x.strip()}
-        ok_streams = {x.strip() for x in ok_out.splitlines() if x.strip()}
+                eth_type = int.from_bytes(pkt[12:14], 'big')
+                if eth_type != 0x0800:
+                    continue
+                ip_off = 14
+                ihl = (pkt[ip_off] & 0x0F) * 4
+                if len(pkt) < ip_off + ihl + 20:
+                    continue
+                if pkt[ip_off + 9] != 6:
+                    continue
+
+                src_ip = pkt[ip_off + 12:ip_off + 16]
+                dst_ip = pkt[ip_off + 16:ip_off + 20]
+                tcp_off = ip_off + ihl
+                sport = int.from_bytes(pkt[tcp_off:tcp_off + 2], 'big')
+                dport = int.from_bytes(pkt[tcp_off + 2:tcp_off + 4], 'big')
+                seq = int.from_bytes(pkt[tcp_off + 4:tcp_off + 8], 'big')
+                flags = pkt[tcp_off + 13]
+                data_off = ((pkt[tcp_off + 12] >> 4) & 0xF) * 4
+                pay_off = tcp_off + data_off
+                payload = pkt[pay_off:] if pay_off <= len(pkt) else b''
+
+                if dport == server_port:
+                    flow = (src_ip, sport, dst_ip, dport)
+                    dir_c2s = True
+                elif sport == server_port:
+                    flow = (dst_ip, dport, src_ip, sport)
+                    dir_c2s = False
+                else:
+                    continue
+
+                syn = bool(flags & 0x02)
+                ack = bool(flags & 0x10)
+                if dir_c2s and syn and not ack:
+                    syn_n += 1
+                elif (not dir_c2s) and syn and ack:
+                    synack_n += 1
+                elif dir_c2s and ack and not syn:
+                    ack_n += 1
+
+                if payload:
+                    if dir_c2s:
+                        c2s.setdefault(flow, {})[seq] = payload
+                    else:
+                        s2c.setdefault(flow, {})[seq] = payload
+
+        def rebuild(frags):
+            out = b''
+            for seq in sorted(frags.keys()):
+                out += frags[seq]
+            return out
+
+        get_flows = 0
+        ok_flows = 0
+        for flow in (set(c2s.keys()) | set(s2c.keys())):
+            req = rebuild(c2s.get(flow, {}))
+            rsp = rebuild(s2c.get(flow, {}))
+            if b'GET /' in req and b'HTTP/1.' in req:
+                get_flows += 1
+            if (b'HTTP/1.0 200' in rsp) or (b'HTTP/1.1 200' in rsp):
+                ok_flows += 1
 
         return {
             'tcp_syn_packets': syn_n,
             'tcp_synack_packets': synack_n,
             'tcp_ack_packets': ack_n,
             'tcp_handshake_estimate': min(syn_n, synack_n, ack_n),
-            'http_get_streams_after_reassembly': len(get_streams),
-            'http_200_streams_after_reassembly': len(ok_streams),
+            'http_get_flows_after_reassembly': get_flows,
+            'http_200_flows_after_reassembly': ok_flows,
         }
     except Exception as e:
         return {'error': str(e)}
