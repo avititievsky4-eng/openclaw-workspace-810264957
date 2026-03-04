@@ -148,7 +148,8 @@ def main():
         # Hard-stop fallback in case capture tool does not terminate on SIGINT.
         cap.kill(); cap.wait(timeout=3)
 
-    if shutil.which('zeek') is None:
+    zeek_bin = shutil.which('zeek') or ('/usr/local/zeek/bin/zeek' if os.path.exists('/usr/local/zeek/bin/zeek') else None)
+    if zeek_bin is None:
         try: os.remove(pcap)
         except: pass
         server.shutdown()
@@ -160,13 +161,18 @@ def main():
         return
 
     outdir=tempfile.mkdtemp(prefix='http_zeek_')
-    subprocess.run([
-        'zeek','-C','-r',pcap,
-        '-e', f'redef likely_server_ports += {{ {args.port}/tcp }};',
+    force_script=f'/tmp/force_http_18080_{int(time.time()*1000)}.zeek'
+    with open(force_script,'w') as sf:
+        sf.write(f"redef likely_server_ports += {{ {args.port}/tcp }};\n")
+        sf.write("redef Site::local_nets += { 127.0.0.0/8 };\n")
+        sf.write("event zeek_init() { Analyzer::register_for_port(Analyzer::ANALYZER_HTTP, 18080/tcp); }\n")
+
+    zr = subprocess.run([
+        zeek_bin,'-C','-r',pcap,'base/protocols/http',force_script,
         '-e', 'redef LogAscii::use_json=T;',
         '-e', f'redef Log::default_rotation_interval = 0secs;',
         '-e', f'redef Log::default_logdir = "{outdir}";'
-    ],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
+    ],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     httplog=os.path.join(outdir,'http.log')
     get_seen=0; rsp_seen=0
     if os.path.exists(httplog):
@@ -202,6 +208,8 @@ def main():
     # Emit structured JSON consumed by run_http_compare_all.sh.
     print(json.dumps({
         'tool':'zeek-http',
+        'zeek_rc': zr.returncode,
+        'zeek_stderr': (zr.stderr or '')[:300],
         'requests_ok':requests_ok,
         'sessions_ok':sessions_ok,
         'load_trace_queue':load_trace_queue,
