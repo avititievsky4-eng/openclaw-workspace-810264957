@@ -35,7 +35,7 @@ def analyze_tcp_http_pcap_inline(pcap_path: str, server_port: int = 18080) -> di
             if len(gh) < 24:
                 return {'error': 'bad pcap global header'}
             magic = gh[:4]
-            le = magic in (b'ÔÃ²¡', b'M<²¡')
+            le = magic in (b'\xd4\xc3\xb2\xa1', b'\x4d\x3c\xb2\xa1')
             ph_fmt = ('<' if le else '>') + 'IIII'
 
             while True:
