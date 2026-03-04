@@ -144,6 +144,7 @@ def main():
     qpk: queue.Queue = queue.Queue(maxsize=120000)
     ids = set()
     responses = 0
+    req_frags = {}
     enq = 0
     handled = 0
     drop = 0
@@ -176,9 +177,28 @@ def main():
                 continue
             with lock:
                 handled += 1
-            m = GET_RE.search(pkt)
-            if m:
-                ids.add(m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1))
+            # Reassemble on normalized client->server flow by TCP seq.
+            if len(pkt) >= 14 + 20:
+                try:
+                    eth_type = int.from_bytes(pkt[12:14], 'big')
+                    if eth_type == 0x0800:
+                        ip_off = 14
+                        ihl = (pkt[ip_off] & 0x0F) * 4
+                        if len(pkt) >= ip_off + ihl + 20 and pkt[ip_off + 9] == 6:
+                            src_ip = pkt[ip_off + 12:ip_off + 16]
+                            dst_ip = pkt[ip_off + 16:ip_off + 20]
+                            tcp_off = ip_off + ihl
+                            sport = int.from_bytes(pkt[tcp_off:tcp_off + 2], 'big')
+                            dport = int.from_bytes(pkt[tcp_off + 2:tcp_off + 4], 'big')
+                            seq = int.from_bytes(pkt[tcp_off + 4:tcp_off + 8], 'big')
+                            data_off = ((pkt[tcp_off + 12] >> 4) & 0xF) * 4
+                            pay_off = tcp_off + data_off
+                            payload = pkt[pay_off:] if pay_off <= len(pkt) else b''
+                            if dport == args.port and payload:
+                                flow = (src_ip, sport, dst_ip, dport)
+                                req_frags.setdefault(flow, {})[seq] = payload
+                except Exception:
+                    pass
             if b'HTTP/1.' in pkt and b' 200 OK' in pkt:
                 responses += 1
 
@@ -220,6 +240,17 @@ def main():
     tcp_reassembly_check = analyze_tcp_http_pcap_inline(track_pcap, server_port=args.port)
     t1 = time.perf_counter()
     server.shutdown()
+
+    # Parse reassembled requests for GET paths.
+    def rebuild(frags):
+        out=b''
+        for seq in sorted(frags.keys()):
+            out += frags[seq]
+        return out
+    for fr in req_frags.values():
+        req = rebuild(fr)
+        for m in GET_RE.finditer(req):
+            ids.add(m.group(1).decode('ascii', errors='ignore'))
 
     # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions = build_sniff_session_map(ids)
