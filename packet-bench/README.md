@@ -13,6 +13,7 @@ Methods:
 - `http_bench/benchmark_http_rawsocket.py`
 - `http_bench/benchmark_http_rawsocket_tpacketv3.py`
 - `http_bench/benchmark_http_pypcap.py`
+- `http_bench/benchmark_http_dpkt.py`
 - `http_bench/benchmark_http_ebpf.py`
 
 Run:
