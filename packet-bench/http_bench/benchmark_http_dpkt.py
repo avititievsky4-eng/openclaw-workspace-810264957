@@ -44,8 +44,11 @@ def main():
         text=True,
     )
 
+    # Start end-to-end timer for this benchmark method.
     t0 = time.perf_counter()
+    # Small warm-up delay so capture process attaches before load starts.
     time.sleep(0.3)
+    # Generator simulates long page-load sessions (page + 20 assets).
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
     requests_ok = load_stats['requests_ok']
@@ -54,12 +57,15 @@ def main():
     # Count fully completed sessions (page + all assets).
     load_trace_queue = load_stats.get('queue_file', '')
     load_trace_sessions = load_stats.get('sessions_file', '')
+    # Small warm-up delay so capture process attaches before load starts.
     time.sleep(0.4)
 
+    # Graceful capture stop (flush and close pcap cleanly).
     cap.send_signal(signal.SIGINT)
     try:
         cap.wait(timeout=6)
     except subprocess.TimeoutExpired:
+        # Hard-stop fallback in case capture tool does not terminate on SIGINT.
         cap.kill()
         cap.wait(timeout=3)
 
@@ -116,11 +122,14 @@ def main():
         stream = rebuild(fr)
         http200 += stream.count(b'HTTP/1.0 200 OK') + stream.count(b'HTTP/1.1 200 OK')
 
+    # Stop timer and shutdown local HTTP server for this run.
     t1 = time.perf_counter()
     server.shutdown()
 
+    # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions = build_sniff_session_map(get_ids)
     # Build final result object written to JSON by run_http_compare_all.sh.
+    # Build structured result for this method.
     result = {
         'tool': 'dpkt-http',
         'requests_ok': requests_ok,

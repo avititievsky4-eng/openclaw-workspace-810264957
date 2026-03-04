@@ -26,7 +26,9 @@ def main():
     # Start local HTTP server that serves /page and /asset endpoints.
     pcap=f"/tmp/http_netsniff_{int(time.time()*1000)}.pcap"
     cap=subprocess.Popen(['netsniff-ng','--in',args.iface,'--out',pcap,'--silent','--no-promisc','--filter',f'tcp port {args.port}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
-    t0=time.perf_counter(); time.sleep(0.4)
+    t0=time.perf_counter(); # Small warm-up delay so capture process attaches before load starts.
+    time.sleep(0.4)
+    # Generator simulates long page-load sessions (page + 20 assets).
     load_stats=generate_http_load(args.host,args.port,args.duration,workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
     requests_ok=load_stats['requests_ok']
@@ -35,10 +37,13 @@ def main():
     # Count fully completed sessions (page + all assets).
     load_trace_queue=load_stats.get('queue_file','')
     load_trace_sessions=load_stats.get('sessions_file','')
+    # Small post-load delay to let late packets flush into capture.
     time.sleep(0.5)
+    # Graceful capture stop (flush and close pcap cleanly).
     cap.send_signal(signal.SIGINT)
     try: cap.wait(timeout=6)
     except subprocess.TimeoutExpired:
+        # Hard-stop fallback in case capture tool does not terminate on SIGINT.
         cap.kill(); cap.wait(timeout=3)
 
     get_out=subprocess.run(['tshark','-r',pcap,'-Y',f'http.request.method == "GET" && tcp.dstport == {args.port}','-T','fields','-e','frame.number'],capture_output=True,text=True)
@@ -47,12 +52,15 @@ def main():
     get_seen=len([x for x in (get_out.stdout or '').splitlines() if x.strip()])
     rsp_seen=len([x for x in (rsp_out.stdout or '').splitlines() if x.strip()])
     uri_paths=[x.strip().lstrip('/') for x in (uri_out.stdout or '').splitlines() if x.strip()]
+    # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions=build_sniff_session_map(uri_paths)
 
     try: os.remove(pcap)
     except: pass
+    # Stop timer and shutdown local HTTP server for this run.
     t1=time.perf_counter(); server.shutdown()
     # Emit final structured result for this benchmark method.
+    # Emit structured JSON consumed by run_http_compare_all.sh.
     print(json.dumps({
         'tool':'netsniff-http',
         'requests_ok':requests_ok,

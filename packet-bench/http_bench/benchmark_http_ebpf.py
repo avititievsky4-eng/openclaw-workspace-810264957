@@ -57,10 +57,12 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
 }}
 """
 
+    # Start end-to-end timer for this benchmark method.
     t0 = time.perf_counter()
     b = BPF(text=bpf_text)
 
     time.sleep(0.2)
+    # Generator simulates long page-load sessions (page + 20 assets).
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
     requests_ok = load_stats['requests_ok']
@@ -78,10 +80,12 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
     if key in table:
         sessions = int(table[key].value)
 
+    # Stop timer and shutdown local HTTP server for this run.
     t1 = time.perf_counter()
     server.shutdown()
 
     # Build final result object written to JSON by run_http_compare_all.sh.
+    # Build structured result for this method.
     result = {
         'tool': 'ebpf-http-session',
         'requests_ok': requests_ok,

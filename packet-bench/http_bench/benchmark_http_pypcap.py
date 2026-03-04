@@ -78,12 +78,15 @@ def main():
             if b'HTTP/1.' in pkt and b' 200 OK' in pkt:
                 responses += 1
 
+    # Start end-to-end timer for this benchmark method.
     t0 = time.perf_counter()
     pth = threading.Thread(target=producer, daemon=True)
     cth = threading.Thread(target=consumer, daemon=True)
     pth.start(); cth.start()
 
+    # Small warm-up delay so capture process attaches before load starts.
     time.sleep(0.3)
+    # Generator simulates long page-load sessions (page + 20 assets).
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
     requests_ok = load_stats['requests_ok']
@@ -103,11 +106,14 @@ def main():
         time.sleep(0.01)
 
     cth.join(timeout=5)
+    # Stop timer and shutdown local HTTP server for this run.
     t1 = time.perf_counter()
     server.shutdown()
 
+    # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions = build_sniff_session_map(ids)
     # Build final result object written to JSON by run_http_compare_all.sh.
+    # Build structured result for this method.
     result = {
         'tool': 'pypcap-http',
         'requests_ok': requests_ok,

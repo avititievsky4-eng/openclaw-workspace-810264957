@@ -200,6 +200,7 @@ def main():
                 seen_get_ids.update(local_get)
                 http_200_seen += local_200
 
+    # Start end-to-end timer for this benchmark method.
     t0 = time.perf_counter()
     pth = threading.Thread(target=producer, daemon=True)
     # Single consumer avoids shared-state races in per-flow TCP reassembly.
@@ -209,6 +210,7 @@ def main():
         c.start()
 
     time.sleep(0.25)
+    # Generator simulates long page-load sessions (page + 20 assets).
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
     requests_ok = load_stats['requests_ok']
@@ -240,11 +242,14 @@ def main():
     for c in consumers:
         c.join(timeout=5)
 
+    # Stop timer and shutdown local HTTP server for this run.
     t1 = time.perf_counter()
     server.shutdown()
 
+    # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions = build_sniff_session_map(seen_get_ids)
     # Build final result object written to JSON by run_http_compare_all.sh.
+    # Build structured result for this method.
     result = {
         'tool': 'libpcap-http',
         'requests_ok': requests_ok,

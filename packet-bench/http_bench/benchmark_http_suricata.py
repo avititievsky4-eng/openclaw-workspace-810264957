@@ -26,7 +26,9 @@ def main():
     # Start local HTTP server that serves /page and /asset endpoints.
     pcap=f"/tmp/http_suricata_{int(time.time()*1000)}.pcap"
     cap=subprocess.Popen(['tcpdump','-i',args.iface,'-n','-s0','-w',pcap,f'tcp port {args.port}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
-    t0=time.perf_counter(); time.sleep(0.4)
+    t0=time.perf_counter(); # Small warm-up delay so capture process attaches before load starts.
+    time.sleep(0.4)
+    # Generator simulates long page-load sessions (page + 20 assets).
     load_stats=generate_http_load(args.host,args.port,args.duration,workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
     requests_ok=load_stats['requests_ok']
@@ -35,10 +37,13 @@ def main():
     # Count fully completed sessions (page + all assets).
     load_trace_queue=load_stats.get('queue_file','')
     load_trace_sessions=load_stats.get('sessions_file','')
+    # Small warm-up delay so capture process attaches before load starts.
     time.sleep(0.4)
+    # Graceful capture stop (flush and close pcap cleanly).
     cap.send_signal(signal.SIGINT)
     try: cap.wait(timeout=6)
     except subprocess.TimeoutExpired:
+        # Hard-stop fallback in case capture tool does not terminate on SIGINT.
         cap.kill(); cap.wait(timeout=3)
 
     outdir=tempfile.mkdtemp(prefix='http_suricata_')
@@ -61,12 +66,15 @@ def main():
                     if str(h.get('status',''))=='200':
                         rsp_seen += 1
 
+    # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions=build_sniff_session_map(sniff_paths)
     try: os.remove(pcap)
     except: pass
     shutil.rmtree(outdir, ignore_errors=True)
+    # Stop timer and shutdown local HTTP server for this run.
     t1=time.perf_counter(); server.shutdown()
     # Emit final structured result for this benchmark method.
+    # Emit structured JSON consumed by run_http_compare_all.sh.
     print(json.dumps({
         'tool':'suricata-http',
         'requests_ok':requests_ok,

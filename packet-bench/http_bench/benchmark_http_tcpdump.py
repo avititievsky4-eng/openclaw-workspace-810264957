@@ -35,6 +35,7 @@ def main():
     # Start local HTTP server that serves /page and /asset endpoints.
 
     cmd = ['tcpdump', '-i', args.iface, '-n', '-s0', '-A', '-l', f'tcp port {args.port}']
+    # Start end-to-end timer for this benchmark method.
     t0 = time.perf_counter()
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors='ignore')
 
@@ -85,7 +86,9 @@ def main():
     cth = threading.Thread(target=consumer, daemon=True)
     pth.start(); cth.start()
 
+    # Small warm-up delay so capture process attaches before load starts.
     time.sleep(0.4)
+    # Generator simulates long page-load sessions (page + 20 assets).
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
     requests_ok = load_stats['requests_ok']
@@ -100,6 +103,7 @@ def main():
     try:
         p.wait(timeout=6)
     except subprocess.TimeoutExpired:
+        # Hard-stop fallback in case capture tool does not terminate on SIGINT.
         p.kill(); p.wait(timeout=3)
 
     pth.join(timeout=5)
@@ -112,11 +116,14 @@ def main():
 
     cth.join(timeout=5)
 
+    # Stop timer and shutdown local HTTP server for this run.
     t1 = time.perf_counter()
     server.shutdown()
 
+    # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions = build_sniff_session_map(ids)
     # Build final result object written to JSON by run_http_compare_all.sh.
+    # Build structured result for this method.
     result = {
         'tool': 'tcpdump-http',
         'requests_ok': requests_ok,

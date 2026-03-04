@@ -130,9 +130,12 @@ def main():
     q = mp.Queue()
     p = mp.Process(target=cap_worker, args=(args.iface, args.port, args.duration + 1.5, q), daemon=True)
 
+    # Start end-to-end timer for this benchmark method.
     t0 = time.perf_counter()
     p.start()
+    # Small warm-up delay so capture process attaches before load starts.
     time.sleep(0.3)
+    # Generator simulates long page-load sessions (page + 20 assets).
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
     requests_ok = load_stats['requests_ok']
@@ -142,12 +145,14 @@ def main():
     load_trace_queue = load_stats.get('queue_file', '')
     load_trace_sessions = load_stats.get('sessions_file', '')
     p.join(timeout=20)
+    # Stop timer and shutdown local HTTP server for this run.
     t1 = time.perf_counter()
     server.shutdown()
 
     seen_paths, sniff_sessions, responses, dropped, enqueued, handled = q.get() if not q.empty() else ([], {}, 0, 0, 0, 0)
     seen = len(set(seen_paths))
     # Build final result object written to JSON by run_http_compare_all.sh.
+    # Build structured result for this method.
     result = {
         'tool': 'scapy-http',
         'requests_ok': requests_ok,
