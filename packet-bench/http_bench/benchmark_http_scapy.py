@@ -22,8 +22,12 @@ GET_RE = re.compile(br'GET /(page\?sid=(\d+)|asset\?sid=(\d+)&i=\d+)')
 
 
 def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
+    # Queue between packet-capture callback (producer) and parser thread (consumer).
     pkt_q: queue.Queue = queue.Queue(maxsize=30000)
+
+    # Unique GET paths detected from sniffed payloads.
     seen = set()
+    # Per-session map built from sniffed packets: sid -> set(paths).
     session_files = {}
     responses = 0
     stop = False
@@ -32,31 +36,41 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
     handled = 0
     done_sniff = False
 
+    # Lock protects counters shared between producer/consumer.
     lock = threading.Lock()
 
     def consumer():
+        """Parse payload bytes from pkt_q and map each GET to its session id."""
         nonlocal responses, handled
         while True:
             try:
                 data = pkt_q.get(timeout=0.05)
             except queue.Empty:
+                # Exit only after capture ended and queue fully drained.
                 if done_sniff and pkt_q.empty():
                     break
                 continue
             with lock:
                 handled += 1
+
+            # Match either page?sid=X or asset?sid=X&i=Y
             m = GET_RE.search(data)
             if m:
                 path = m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1)
                 sid = None
+                # Regex has 2 possible sid capture groups (page or asset branch).
                 if m.group(2):
                     sid = m.group(2).decode('ascii', errors='ignore') if isinstance(m.group(2), (bytes, bytearray)) else m.group(2)
                 elif m.group(3):
                     sid = m.group(3).decode('ascii', errors='ignore') if isinstance(m.group(3), (bytes, bytearray)) else m.group(3)
+
+                # Track unique path globally and per-session.
                 seen.add(path)
                 if sid is not None:
                     d = session_files.setdefault(str(sid), set())
                     d.add(path)
+
+            # Count HTTP 200 responses seen in payload stream.
             if b'HTTP/1.' in data and b' 200 ' in data:
                 responses += 1
 
@@ -64,6 +78,7 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
     cth.start()
 
     def on_pkt(pkt):
+        """Producer callback from Scapy sniff(): push Raw payload to queue."""
         nonlocal dropped, enqueued
         if Raw in pkt:
             data = bytes(pkt[Raw].load)
@@ -71,12 +86,14 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
                 pkt_q.put_nowait(data)
                 enqueued += 1
             except queue.Full:
+                # Queue overflow means parser is slower than capture rate.
                 dropped += 1
 
+    # Start packet capture on requested interface for the benchmark window.
     sniff(iface=iface, filter=f'tcp port {port}', prn=on_pkt, store=False, timeout=run_for)
     done_sniff = True
 
-    # wait for full drain
+    # Wait until consumer drains buffered packets.
     deadline = time.time() + 10
     while time.time() < deadline:
         if pkt_q.empty() and handled >= enqueued:
@@ -85,6 +102,8 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
 
     stop = True
     cth.join(timeout=5)
+
+    # Normalize session map into JSON-friendly payload.
     session_payload = {
         sid: {
             'files': sorted(files),
