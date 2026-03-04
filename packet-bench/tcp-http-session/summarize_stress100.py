@@ -30,14 +30,14 @@ def main():
         success = 0
         for sid in checked:
             rec = sess[str(sid)]
-            if rec.get('min20_ok'):
+            if rec.get('min1_asset_ok', rec.get('min20_ok', False)):
                 success += 1
 
         rows.append({
             'method': method,
             'sessions_detected': len(sids),
             'sessions_checked': len(checked),
-            'tcp_sessions_success': success,
+            'tcp_sessions_success_min1asset_min1asset': success,
             'success_rate': (success / len(checked) * 100.0) if checked else 0.0,
             'notes': notes,
         })
@@ -52,18 +52,18 @@ def main():
     with open(out_csv, 'w', newline='') as f:
         w = csv.DictWriter(
             f,
-            fieldnames=['method', 'sessions_detected', 'sessions_checked', 'tcp_sessions_success', 'success_rate', 'notes'],
+            fieldnames=['method', 'sessions_detected', 'sessions_checked', 'tcp_sessions_success_min1asset_min1asset', 'success_rate', 'notes'],
         )
         w.writeheader()
         w.writerows(rows)
 
     with open(out_md, 'w') as f:
         f.write('# HTTP TCP sessions stress report (target: first 100 sessions)\n\n')
-        f.write('| Method | sessions_detected | sessions_checked | tcp_sessions_success | success_rate | Notes |\n')
+        f.write('| Method | sessions_detected | sessions_checked | tcp_sessions_success_min1asset | success_rate | Notes |\n')
         f.write('|---|---:|---:|---:|---:|---|\n')
         for r in rows:
             f.write(
-                f"| {r['method']} | {r['sessions_detected']} | {r['sessions_checked']} | {r['tcp_sessions_success']} | {r['success_rate']:.2f}% | {r['notes']} |\n"
+                f"| {r['method']} | {r['sessions_detected']} | {r['sessions_checked']} | {r['tcp_sessions_success_min1asset_min1asset']} | {r['success_rate']:.2f}% | {r['notes']} |\n"
             )
 
     for r in rows:
@@ -76,7 +76,7 @@ def main():
             f.write(f"# {r['method']} - TCP session stress (first {args.limit} sessions)\n\n")
             f.write(f"- sessions_detected: {r['sessions_detected']}\n")
             f.write(f"- sessions_checked: {r['sessions_checked']}\n")
-            f.write(f"- tcp_sessions_success: {r['tcp_sessions_success']}\n")
+            f.write(f"- tcp_sessions_success_min1asset: {r['tcp_sessions_success_min1asset_min1asset']}\n")
             f.write(f"- success_rate: {r['success_rate']:.2f}%\n")
             f.write(f"- notes: {r['notes']}\n")
 

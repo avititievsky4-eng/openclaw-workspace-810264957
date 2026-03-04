@@ -92,14 +92,17 @@ def build_sniff_session_map(paths):
         sid = m.group(1)
         sessions[sid].append(str(p))
 
-    payload = {
-        sid: {
-            'files': sorted(set(files)),
-            'loaded_count': len(set(files)),
-            'min20_ok': len(set(files)) >= 20,
+    payload = {}
+    for sid, files in sessions.items():
+        uniq = sorted(set(files))
+        asset_count = sum(1 for f in uniq if str(f).lstrip('/').startswith('asset?'))
+        payload[sid] = {
+            'files': uniq,
+            'loaded_count': len(uniq),
+            'asset_count': asset_count,
+            'min1_asset_ok': asset_count >= 1,
+            'min20_ok': asset_count >= 20,
         }
-        for sid, files in sessions.items()
-    }
     return payload
 
 
@@ -117,10 +120,13 @@ def load_session_files_map(sessions_file: str):
         sid = str(s.get('sid'))
         files = s.get('loaded_files', []) or []
         uniq = sorted(set(files))
+        asset_count = sum(1 for f in uniq if str(f).lstrip('/').startswith('asset?'))
         out[sid] = {
             'files': uniq,
             'loaded_count': len(uniq),
-            'min20_ok': len(uniq) >= 20,
+            'asset_count': asset_count,
+            'min1_asset_ok': asset_count >= 1,
+            'min20_ok': asset_count >= 20,
         }
     return out
 
@@ -233,6 +239,8 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4, 
                 'sid': sid,
                 'loaded_files': files,
                 'loaded_count': len(files),
+                'asset_count': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')),
+                'min1_asset_ok': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')) >= 1,
                 'expected_count': 1 + IMG_COUNT,
                 'completed': bool(session_done.get(sid, False) and len(files) == (1 + IMG_COUNT)),
             }
