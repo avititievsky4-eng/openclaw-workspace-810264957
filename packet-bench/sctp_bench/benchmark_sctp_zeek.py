@@ -27,9 +27,15 @@ def main():
     except subprocess.TimeoutExpired: cap.kill(); cap.wait(timeout=3)
 
     outdir=tempfile.mkdtemp(prefix='zeek_sctp_')
-    subprocess.run(['zeek','-r',pcap,f'Log::default_rotation_interval=0secs',f'Log::default_logdir={outdir}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
-    conn=os.path.join(outdir,'conn.log')
     captured=0
+    try:
+        subprocess.run(['zeek','-r',pcap,f'Log::default_rotation_interval=0secs',f'Log::default_logdir={outdir}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True,check=False)
+    except FileNotFoundError:
+        print(json.dumps({'tool':'zeek-sctp','sent':sent,'captured':0,'captured_normalized':0,'capture_ratio':0.0,'capture_ratio_normalized':0.0,'unavailable':'zeek binary not found'},indent=2))
+        try: os.remove(pcap)
+        except: pass
+        return
+    conn=os.path.join(outdir,'conn.log')
     if os.path.exists(conn):
         txt=open(conn,errors='ignore').read().splitlines()
         for ln in txt:
