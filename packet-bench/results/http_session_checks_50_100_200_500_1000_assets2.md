@@ -1,4 +1,4 @@
-# HTTP session checks (assets=2, latest 20s run)
+# HTTP session checks (assets=2, latest 20s run, zeek removed)
 
 Criteria: pass if session has at least 2 detected asset requests.
 
@@ -15,4 +15,3 @@ Criteria: pass if session has at least 2 detected asset requests.
 | suricata-http | 50/50 | 100/100 | 200/200 | 386/386 | 386/386 | 386 |  |
 | tcpdump-http | 50/50 | 100/100 | 200/200 | 426/426 | 426/426 | 426 |  |
 | tshark-http | 50/50 | 100/100 | 200/200 | 430/430 | 430/430 | 430 |  |
-| zeek-http | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0 | zeek binary not found |
