@@ -10,15 +10,16 @@ import time
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load, build_sniff_session_map
+from common_http import start_http_server, generate_http_load
 from scapy.all import sniff, Raw  # type: ignore
 
-GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
+GET_RE = re.compile(br'GET /(page\?sid=(\d+)|asset\?sid=(\d+)&i=\d+)')
 
 
 def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
     pkt_q: queue.Queue = queue.Queue(maxsize=30000)
     seen = set()
+    session_files = {}
     responses = 0
     stop = False
     dropped = 0
@@ -41,7 +42,16 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
                 handled += 1
             m = GET_RE.search(data)
             if m:
-                seen.add(m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1))
+                path = m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1)
+                sid = None
+                if m.group(2):
+                    sid = m.group(2).decode('ascii', errors='ignore') if isinstance(m.group(2), (bytes, bytearray)) else m.group(2)
+                elif m.group(3):
+                    sid = m.group(3).decode('ascii', errors='ignore') if isinstance(m.group(3), (bytes, bytearray)) else m.group(3)
+                seen.add(path)
+                if sid is not None:
+                    d = session_files.setdefault(str(sid), set())
+                    d.add(path)
             if b'HTTP/1.' in data and b' 200 ' in data:
                 responses += 1
 
@@ -70,7 +80,15 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
 
     stop = True
     cth.join(timeout=5)
-    q.put((sorted(seen), responses, dropped, enqueued, handled))
+    session_payload = {
+        sid: {
+            'files': sorted(files),
+            'loaded_count': len(files),
+            'min20_ok': len(files) >= 20,
+        }
+        for sid, files in session_files.items()
+    }
+    q.put((sorted(seen), session_payload, responses, dropped, enqueued, handled))
 
 
 def main():
@@ -98,8 +116,7 @@ def main():
     t1 = time.perf_counter()
     server.shutdown()
 
-    seen_paths, responses, dropped, enqueued, handled = q.get() if not q.empty() else ([], 0, 0, 0, 0)
-    sniff_sessions = build_sniff_session_map(seen_paths)
+    seen_paths, sniff_sessions, responses, dropped, enqueued, handled = q.get() if not q.empty() else ([], {}, 0, 0, 0, 0)
     seen = len(set(seen_paths))
     result = {
         'tool': 'scapy-http',
