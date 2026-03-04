@@ -5,7 +5,10 @@ Captures TCP/HTTP traffic and tracks detected files by session id.
 This benchmark uses the shared long-load generator from common_http.py.
 """
 import argparse
+import tempfile
 import json
+import subprocess
+import signal
 import queue
 import re
 import sys
@@ -17,6 +20,7 @@ import pcap  # type: ignore
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load, build_sniff_session_map
+from tcp_reassembly_check import analyze_tcp_http_pcap
 
 GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
 
@@ -33,6 +37,9 @@ def main():
 
     server = start_http_server(args.host, args.port)
     # Start local HTTP server that serves /page and /asset endpoints.
+    # Side capture for TCP handshake/reassembly validation.
+    track_pcap=tempfile.mktemp(prefix='tcptrack_', suffix='.pcap')
+    track_cap=subprocess.Popen(['tcpdump','-i',getattr(args,'iface','lo'),'-n','-s0','-w',track_pcap,f'tcp port {args.port}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
 
     pc = pcap.pcap(name=args.iface, snaplen=262144, promisc=True, timeout_ms=1)
     pc.setfilter(f'tcp port {args.port}')
@@ -107,6 +114,13 @@ def main():
 
     cth.join(timeout=5)
     # Stop timer and shutdown local HTTP server for this run.
+    # Stop side capture and run TCP reassembly check.
+    track_cap.send_signal(signal.SIGINT)
+    try:
+        track_cap.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        track_cap.kill(); track_cap.wait(timeout=3)
+    tcp_reassembly_check = analyze_tcp_http_pcap(track_pcap, server_port=args.port)
     t1 = time.perf_counter()
     server.shutdown()
 
@@ -131,6 +145,7 @@ def main():
         'get_seen_ratio': (len(ids) / requests_ok) if requests_ok else 0.0,
         'responses_seen_ratio': (responses / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,
+        'tcp_reassembly_check': tcp_reassembly_check,
     }
     print(json.dumps(result, indent=2))
 

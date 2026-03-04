@@ -1,3 +1,4 @@
+import signal
 #!/usr/bin/env python3
 """Zeek-based HTTP benchmark.
 Runs Zeek over pcap (if available) and reports detected HTTP files per session.
@@ -9,6 +10,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load, build_sniff_session_map
+from tcp_reassembly_check import analyze_tcp_http_pcap
 
 
 def main():
@@ -24,6 +26,9 @@ def main():
 
     server=start_http_server(args.host,args.port)
     # Start local HTTP server that serves /page and /asset endpoints.
+    # Side capture for TCP handshake/reassembly validation.
+    track_pcap=tempfile.mktemp(prefix='tcptrack_', suffix='.pcap')
+    track_cap=subprocess.Popen(['tcpdump','-i',getattr(args,'iface','lo'),'-n','-s0','-w',track_pcap,f'tcp port {args.port}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
     pcap=f"/tmp/http_zeek_{int(time.time()*1000)}.pcap"
     cap=subprocess.Popen(['tcpdump','-i',args.iface,'-n','-s0','-w',pcap,f'tcp port {args.port}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
     t0=time.perf_counter(); # Small warm-up delay so capture process attaches before load starts.
@@ -78,6 +83,13 @@ def main():
     except: pass
     shutil.rmtree(outdir, ignore_errors=True)
     # Stop timer and shutdown local HTTP server for this run.
+    # Stop side capture and run TCP reassembly check.
+    track_cap.send_signal(signal.SIGINT)
+    try:
+        track_cap.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        track_cap.kill(); track_cap.wait(timeout=3)
+    tcp_reassembly_check = analyze_tcp_http_pcap(track_pcap, server_port=args.port)
     t1=time.perf_counter(); server.shutdown()
     # Emit final structured result for this benchmark method.
     # Emit structured JSON consumed by run_http_compare_all.sh.
@@ -92,6 +104,7 @@ def main():
         'get_seen_ratio':(get_seen/requests_ok if requests_ok else 0.0),
         'responses_seen_ratio':(rsp_seen/requests_ok if requests_ok else 0.0),
         'elapsed_s':t1-t0,
+        'tcp_reassembly_check':tcp_reassembly_check,
     },indent=2))
 
 if __name__=='__main__':
