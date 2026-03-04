@@ -1,8 +1,0 @@
-{
-  "method": "rawsocket-http",
-  "sessions_detected": 40,
-  "sessions_checked": 40,
-  "tcp_sessions_success": 40,
-  "success_rate": 100.0,
-  "notes": ""
-}
