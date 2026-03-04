@@ -97,11 +97,13 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
     # Queue between packet-capture callback (producer) and parser thread (consumer).
     pkt_q: queue.Queue = queue.Queue(maxsize=30000)
 
-    # Unique GET paths detected from sniffed payloads.
+    # Unique GET paths detected from reassembled request streams.
     seen = set()
-    # Per-session map built from sniffed packets: sid -> set(paths).
+    # Per-session map built from reassembled streams: sid -> set(paths).
     session_files = {}
     responses = 0
+    req_frags = {}
+    rsp_frags = {}
     stop = False
     dropped = 0
     enqueued = 0
@@ -112,53 +114,48 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
     lock = threading.Lock()
 
     def consumer():
-        """Parse payload bytes from pkt_q and map each GET to its session id."""
+        """Collect per-flow TCP segments, then parse reassembled HTTP data."""
         nonlocal responses, handled
         while True:
             try:
-                data = pkt_q.get(timeout=0.05)
+                item = pkt_q.get(timeout=0.05)
             except queue.Empty:
-                # Exit only after capture ended and queue fully drained.
                 if done_sniff and pkt_q.empty():
                     break
                 continue
             with lock:
                 handled += 1
 
-            # Match either page?sid=X or asset?sid=X&i=Y
-            m = GET_RE.search(data)
-            if m:
-                path = m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1)
-                sid = None
-                # Regex has 2 possible sid capture groups (page or asset branch).
-                if m.group(2):
-                    sid = m.group(2).decode('ascii', errors='ignore') if isinstance(m.group(2), (bytes, bytearray)) else m.group(2)
-                elif m.group(3):
-                    sid = m.group(3).decode('ascii', errors='ignore') if isinstance(m.group(3), (bytes, bytearray)) else m.group(3)
-
-                # Track unique path globally and per-session.
-                seen.add(path)
-                if sid is not None:
-                    d = session_files.setdefault(str(sid), set())
-                    d.add(path)
-
-            # Count HTTP 200 responses seen in payload stream.
-            if b'HTTP/1.' in data and b' 200 ' in data:
-                responses += 1
+            direction, flow, seq, payload = item
+            if not payload:
+                continue
+            if direction == 'c2s':
+                req_frags.setdefault(flow, {})[seq] = payload
+            else:
+                rsp_frags.setdefault(flow, {})[seq] = payload
 
     cth = threading.Thread(target=consumer, daemon=True)
     cth.start()
 
     def on_pkt(pkt):
-        """Producer callback from Scapy sniff(): push Raw payload to queue."""
+        """Producer callback: extract flow+seq+payload and enqueue for reassembly."""
         nonlocal dropped, enqueued
-        if Raw in pkt:
-            data = bytes(pkt[Raw].load)
+        if IP in pkt and TCP in pkt:
+            ip = pkt[IP]
+            tcp = pkt[TCP]
+            payload = bytes(tcp.payload or b'')
+            if tcp.dport == port:
+                flow = (ip.src, int(tcp.sport), ip.dst, int(tcp.dport))
+                direction = 'c2s'
+            elif tcp.sport == port:
+                flow = (ip.dst, int(tcp.dport), ip.src, int(tcp.sport))
+                direction = 's2c'
+            else:
+                return
             try:
-                pkt_q.put_nowait(data)
+                pkt_q.put_nowait((direction, flow, int(tcp.seq), payload))
                 enqueued += 1
             except queue.Full:
-                # Queue overflow means parser is slower than capture rate.
                 dropped += 1
 
     # Start packet capture on requested interface for the benchmark window.
@@ -174,6 +171,29 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
 
     stop = True
     cth.join(timeout=5)
+
+    # Parse reassembled streams to extract GET paths and HTTP 200 responses.
+    def rebuild(frags):
+        out = b''
+        for seq in sorted(frags.keys()):
+            out += frags[seq]
+        return out
+
+    for flow in (set(req_frags.keys()) | set(rsp_frags.keys())):
+        req = rebuild(req_frags.get(flow, {}))
+        rsp = rebuild(rsp_frags.get(flow, {}))
+        for m in GET_RE.finditer(req):
+            path = m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1)
+            sid = None
+            if m.group(2):
+                sid = m.group(2).decode('ascii', errors='ignore') if isinstance(m.group(2), (bytes, bytearray)) else m.group(2)
+            elif m.group(3):
+                sid = m.group(3).decode('ascii', errors='ignore') if isinstance(m.group(3), (bytes, bytearray)) else m.group(3)
+            seen.add(path)
+            if sid is not None:
+                d = session_files.setdefault(str(sid), set())
+                d.add(path)
+        responses += rsp.count(b'HTTP/1.0 200') + rsp.count(b'HTTP/1.1 200')
 
     # Normalize session map into JSON-friendly payload.
     session_payload = {
