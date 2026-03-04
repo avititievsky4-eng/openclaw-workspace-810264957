@@ -160,21 +160,31 @@ def main():
         return
 
     outdir=tempfile.mkdtemp(prefix='http_zeek_')
-    subprocess.run(['zeek','-r',pcap,f'Log::default_rotation_interval=0secs',f'Log::default_logdir={outdir}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
+    subprocess.run([
+        'zeek','-C','-r',pcap,
+        '-e', f'redef likely_server_ports += {{ {args.port}/tcp }};',
+        '-e', 'redef LogAscii::use_json=T;',
+        '-e', f'redef Log::default_rotation_interval = 0secs;',
+        '-e', f'redef Log::default_logdir = "{outdir}";'
+    ],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
     httplog=os.path.join(outdir,'http.log')
     get_seen=0; rsp_seen=0
     if os.path.exists(httplog):
         with open(httplog,'r',errors='ignore') as f:
             for line in f:
-                if not line or line.startswith('#'):
+                line=line.strip()
+                if not line:
                     continue
-                parts=line.rstrip('\n').split('\t')
-                # zeek http.log usually: method in col 8, status_code in col 9 (index 7,8)
-                if len(parts) > 8:
-                    if parts[7] == 'GET':
-                        get_seen += 1
-                    if parts[8] == '200':
-                        rsp_seen += 1
+                try:
+                    rec=json.loads(line)
+                except Exception:
+                    continue
+                method=str(rec.get('method','')).upper()
+                status=str(rec.get('status_code',''))
+                if method == 'GET':
+                    get_seen += 1
+                if status == '200':
+                    rsp_seen += 1
 
     try: os.remove(pcap)
     except: pass
