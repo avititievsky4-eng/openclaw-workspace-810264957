@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""pypcap-based HTTP benchmark.
+Captures TCP/HTTP traffic and tracks detected files by session id.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse
 import json
 import queue

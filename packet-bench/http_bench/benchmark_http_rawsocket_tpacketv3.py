@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Raw-socket TPACKET_V3 HTTP benchmark.
+High-throughput packet ring capture with per-session file tracking.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse
 import json
 import mmap

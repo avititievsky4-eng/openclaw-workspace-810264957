@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""netsniff-ng + tshark HTTP benchmark.
+Captures with netsniff-ng and extracts GET URIs via tshark.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse, json, os, signal, subprocess, sys, time
 from pathlib import Path
 

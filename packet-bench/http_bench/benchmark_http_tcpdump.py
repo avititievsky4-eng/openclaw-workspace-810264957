@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""tcpdump text-stream HTTP benchmark.
+Parses live tcpdump output and builds per-session file tracking from sniffed GET paths.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse
 import json
 import queue

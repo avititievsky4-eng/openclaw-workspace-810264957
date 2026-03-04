@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Suricata-based HTTP benchmark.
+Parses eve.json HTTP events and builds per-session loaded file map.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse, json, os, shutil, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 

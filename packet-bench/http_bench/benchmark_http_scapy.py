@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Scapy-based HTTP benchmark.
+Captures packets with Scapy, parses HTTP GETs, and tracks files loaded per session.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse
 import json
 import multiprocessing as mp

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""eBPF session benchmark.
+Counts TCP session establishments with BCC and attaches generator session-file traces.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse
 import ctypes
 import json

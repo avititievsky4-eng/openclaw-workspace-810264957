@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""tshark-based HTTP benchmark.
+Captures pcap and uses tshark filters/fields to extract GET URIs and per-session file mapping.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse, json, os, signal, subprocess, sys, time
 from pathlib import Path
 

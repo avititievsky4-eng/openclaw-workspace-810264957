@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Zeek-based HTTP benchmark.
+Runs Zeek over pcap (if available) and reports detected HTTP files per session.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse, json, os, shutil, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 

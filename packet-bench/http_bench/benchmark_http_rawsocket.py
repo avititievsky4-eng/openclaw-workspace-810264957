@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Raw-socket HTTP benchmark.
+Processes packets from AF_PACKET and reconstructs per-session loaded files.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse
 import json
 import queue

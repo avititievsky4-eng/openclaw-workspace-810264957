@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""DPKT offline-parse HTTP benchmark.
+Captures pcap then parses/reassembles flows with dpkt to detect loaded files per session.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse
 import json
 import os

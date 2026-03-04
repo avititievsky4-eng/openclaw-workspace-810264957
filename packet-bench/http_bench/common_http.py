@@ -77,6 +77,7 @@ def _default_trace_dir():
     return os.path.abspath(os.path.join(here, '..', 'results', 'http_session_traces'))
 
 
+# Generic helpers for session/file mapping
 def build_sniff_session_map(paths):
     """Build per-session loaded file map from sniffed HTTP request paths."""
     sid_re = re.compile(r'sid=(\d+)')
@@ -122,6 +123,7 @@ def load_session_files_map(sessions_file: str):
     return out
 
 
+# Shared long-load generator
 def generate_http_load(host: str, port: int, duration: float, workers: int = 4, trace_dir: str | None = None):
     """
     Long-load generator:

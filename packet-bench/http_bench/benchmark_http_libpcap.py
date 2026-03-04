@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""libpcap-based HTTP benchmark.
+Uses libpcap capture/parsing and reports per-session loaded files.
+
+This benchmark uses the shared long-load generator from common_http.py.
+"""
 import argparse
 import collections
 import json
