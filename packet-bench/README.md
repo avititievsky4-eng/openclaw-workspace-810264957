@@ -26,13 +26,19 @@ cd packet-bench
 
 ## SCTP suite
 
-Methods:
+Methods (benchmarked):
 - `sctp_bench/benchmark_sctp_scapy.py`
 - `sctp_bench/benchmark_sctp_tcpdump.py`
 - `sctp_bench/benchmark_sctp_libpcap.py`
 - `sctp_bench/benchmark_sctp_pypcap.py`
 - `sctp_bench/benchmark_sctp_rawsocket.py`
 - `sctp_bench/benchmark_sctp_ebpf.py`
+
+Additional methods installed & smoke-tested:
+- `tshark`
+- `zeek`
+- `suricata`
+- `netsniff-ng`
 
 Generators:
 - `sctp_bench/generate_sctp_scapy.py`
