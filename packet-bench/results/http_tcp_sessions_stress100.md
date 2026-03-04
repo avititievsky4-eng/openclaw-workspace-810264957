@@ -1,6 +1,6 @@
 # HTTP TCP sessions stress report (target: first 100 sessions)
 
-| Method | sessions_detected | sessions_checked | tcp_sessions_success_min1asset | success_rate | Notes |
+| Method | sessions_detected | sessions_checked | tcp_sessions_success_min2asset | success_rate | Notes |
 |---|---:|---:|---:|---:|---|
 | ebpf-http-session | 45 | 45 | 45 | 100.00% |  |
 | libpcap-http | 43 | 43 | 43 | 100.00% |  |

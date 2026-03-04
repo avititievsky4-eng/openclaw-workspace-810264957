@@ -2,6 +2,6 @@
 
 - sessions_detected: 41
 - sessions_checked: 41
-- tcp_sessions_success_min1asset: 40
+- tcp_sessions_success_min2asset: 40
 - success_rate: 97.56%
 - notes: 

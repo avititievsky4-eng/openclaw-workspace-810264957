@@ -110,6 +110,7 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
             'loaded_count': len(files),
             'asset_count': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')),
             'min1_asset_ok': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')) >= 1,
+            'min2_asset_ok': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')) >= 2,
             'min20_ok': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')) >= 20,
         }
         for sid, files in session_files.items()

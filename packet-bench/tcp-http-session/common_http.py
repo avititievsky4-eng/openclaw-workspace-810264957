@@ -101,6 +101,7 @@ def build_sniff_session_map(paths):
             'loaded_count': len(uniq),
             'asset_count': asset_count,
             'min1_asset_ok': asset_count >= 1,
+            'min2_asset_ok': asset_count >= 2,
             'min20_ok': asset_count >= 20,
         }
     return payload
@@ -126,6 +127,7 @@ def load_session_files_map(sessions_file: str):
             'loaded_count': len(uniq),
             'asset_count': asset_count,
             'min1_asset_ok': asset_count >= 1,
+            'min2_asset_ok': asset_count >= 2,
             'min20_ok': asset_count >= 20,
         }
     return out
@@ -241,6 +243,7 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4, 
                 'loaded_count': len(files),
                 'asset_count': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')),
                 'min1_asset_ok': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')) >= 1,
+                'min2_asset_ok': sum(1 for f in files if str(f).lstrip('/').startswith('asset?')) >= 2,
                 'expected_count': 1 + IMG_COUNT,
                 'completed': bool(session_done.get(sid, False) and len(files) == (1 + IMG_COUNT)),
             }

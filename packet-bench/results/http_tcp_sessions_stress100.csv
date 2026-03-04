@@ -1,4 +1,4 @@
-method,sessions_detected,sessions_checked,tcp_sessions_success_min1asset_min1asset,success_rate,notes
+method,sessions_detected,sessions_checked,tcp_sessions_success_min2asset_min1asset,success_rate,notes
 ebpf-http-session,45,45,45,100.0,
 libpcap-http,43,43,43,100.0,
 netsniff-http,44,44,44,100.0,

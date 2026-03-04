@@ -2,7 +2,7 @@
   "method": "dpkt-http",
   "sessions_detected": 45,
   "sessions_checked": 45,
-  "tcp_sessions_success_min1asset_min1asset": 44,
+  "tcp_sessions_success_min2asset_min1asset": 44,
   "success_rate": 97.77777777777777,
   "notes": ""
 }
