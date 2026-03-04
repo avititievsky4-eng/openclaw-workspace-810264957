@@ -54,7 +54,9 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
     b = BPF(text=bpf_text)
 
     time.sleep(0.2)
-    requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    requests_ok = load_stats['requests_ok']
+    sessions_ok = load_stats.get('sessions_ok', 0)
     time.sleep(0.2)
 
     sessions = 0
@@ -69,6 +71,7 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
     result = {
         'tool': 'ebpf-http-session',
         'requests_ok': requests_ok,
+        'sessions_ok': sessions_ok,
         'enqueued_packets': sessions,
         'handled_packets': sessions,
         'unhandled_packets': 0,

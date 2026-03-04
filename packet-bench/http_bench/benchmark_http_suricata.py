@@ -19,7 +19,9 @@ def main():
     pcap=f"/tmp/http_suricata_{int(time.time()*1000)}.pcap"
     cap=subprocess.Popen(['tcpdump','-i',args.iface,'-n','-s0','-w',pcap,f'tcp port {args.port}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
     t0=time.perf_counter(); time.sleep(0.4)
-    requests_ok=generate_http_load(args.host,args.port,args.duration,workers=args.workers)
+    load_stats=generate_http_load(args.host,args.port,args.duration,workers=args.workers)
+    requests_ok=load_stats['requests_ok']
+    sessions_ok=load_stats.get('sessions_ok',0)
     time.sleep(0.4)
     cap.send_signal(signal.SIGINT)
     try: cap.wait(timeout=6)
@@ -49,6 +51,7 @@ def main():
     print(json.dumps({
         'tool':'suricata-http',
         'requests_ok':requests_ok,
+        'sessions_ok':sessions_ok,
         'http_get_seen':get_seen,
         'http_200_seen':rsp_seen,
         'get_seen_ratio':(get_seen/requests_ok if requests_ok else 0.0),

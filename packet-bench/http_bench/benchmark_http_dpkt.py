@@ -15,7 +15,7 @@ import dpkt  # type: ignore
 sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load
 
-GET_RE = re.compile(br'GET /bench\?id=(\d+)')
+GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
 
 
 def main():
@@ -39,7 +39,9 @@ def main():
 
     t0 = time.perf_counter()
     time.sleep(0.3)
-    requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    requests_ok = load_stats['requests_ok']
+    sessions_ok = load_stats.get('sessions_ok', 0)
     time.sleep(0.4)
 
     cap.send_signal(signal.SIGINT)
@@ -95,7 +97,7 @@ def main():
     for fr in req_frags.values():
         stream = rebuild(fr)
         for m in GET_RE.finditer(stream):
-            get_ids.add(int(m.group(1)))
+            get_ids.add(m.group(1).decode('ascii', errors='ignore'))
 
     http200 = 0
     for fr in resp_frags.values():
@@ -108,6 +110,7 @@ def main():
     result = {
         'tool': 'dpkt-http',
         'requests_ok': requests_ok,
+        'sessions_ok': sessions_ok,
         'http_get_seen': len(get_ids),
         'http_200_seen': http200,
         'get_seen_ratio': (len(get_ids) / requests_ok) if requests_ok else 0.0,

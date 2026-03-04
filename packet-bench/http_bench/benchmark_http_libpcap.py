@@ -14,7 +14,7 @@ import pcapy  # type: ignore
 sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load
 
-GET_RE = re.compile(br'GET /bench\?id=(\d+)')
+GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
 
 
 def parse_ipv4_tcp(frame: bytes):
@@ -176,7 +176,7 @@ def main():
                 stream_data = reassemble_request(flow, seq, payload)
                 if stream_data:
                     for m in GET_RE.finditer(stream_data):
-                        local_get.add(int(m.group(1)))
+                        local_get.add(m.group(1).decode('ascii', errors='ignore'))
 
             elif src_port == args.port:
                 # best effort for responses; dedup with chunk hash
@@ -202,7 +202,9 @@ def main():
         c.start()
 
     time.sleep(0.25)
-    requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    requests_ok = load_stats['requests_ok']
+    sessions_ok = load_stats.get('sessions_ok', 0)
 
     stop = True
     with cv:
@@ -232,6 +234,7 @@ def main():
     result = {
         'tool': 'libpcap-http',
         'requests_ok': requests_ok,
+        'sessions_ok': sessions_ok,
         'captured_packets_total': captured_packets_total,
         'enqueued_packets': enqueued_packets,
         'handled_packets': handled_packets,

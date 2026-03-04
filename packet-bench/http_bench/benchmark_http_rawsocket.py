@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load
 
-GET_RE = re.compile(br'GET /bench\?id=(\d+)')
+GET_RE = re.compile(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)')
 
 
 def main():
@@ -72,7 +72,7 @@ def main():
                 handled += 1
             m = GET_RE.search(frame)
             if m:
-                ids.add(int(m.group(1)))
+                ids.add(m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1))
             if b'HTTP/1.' in frame and b' 200 OK' in frame:
                 responses += 1
 
@@ -81,7 +81,9 @@ def main():
     cth = threading.Thread(target=consumer, daemon=True)
     pth.start(); cth.start()
     time.sleep(0.3)
-    requests_ok = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
+    requests_ok = load_stats['requests_ok']
+    sessions_ok = load_stats.get('sessions_ok', 0)
 
     stop = True
     pth.join(timeout=5)
@@ -100,6 +102,7 @@ def main():
     result = {
         'tool': 'rawsocket-http',
         'requests_ok': requests_ok,
+        'sessions_ok': sessions_ok,
         'enqueued_packets': enqueued,
         'handled_packets': handled,
         'unhandled_packets': max(0, enqueued - handled),
