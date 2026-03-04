@@ -33,6 +33,7 @@ Methods (benchmarked):
 - `sctp_bench/benchmark_sctp_pypcap.py`
 - `sctp_bench/benchmark_sctp_rawsocket.py`
 - `sctp_bench/benchmark_sctp_ebpf.py`
+- `sctp_bench/benchmark_sctp_dpkt.py`
 - `sctp_bench/benchmark_sctp_tshark.py`
 - `sctp_bench/benchmark_sctp_zeek.py`
 - `sctp_bench/benchmark_sctp_suricata.py`
