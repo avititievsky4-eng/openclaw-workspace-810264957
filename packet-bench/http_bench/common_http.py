@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 import re
 
 
-IMG_COUNT = 20
+IMG_COUNT = 2
 IMG_DELAY_S = 0.02
 IMG_BYTES = b'\x89PNG\r\n\x1a\n' + (b'X' * 8192)
 
