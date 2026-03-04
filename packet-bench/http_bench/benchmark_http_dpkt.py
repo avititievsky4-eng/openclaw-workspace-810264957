@@ -42,6 +42,8 @@ def main():
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     requests_ok = load_stats['requests_ok']
     sessions_ok = load_stats.get('sessions_ok', 0)
+    load_trace_queue = load_stats.get('queue_file', '')
+    load_trace_sessions = load_stats.get('sessions_file', '')
     time.sleep(0.4)
 
     cap.send_signal(signal.SIGINT)
@@ -111,6 +113,8 @@ def main():
         'tool': 'dpkt-http',
         'requests_ok': requests_ok,
         'sessions_ok': sessions_ok,
+        'load_trace_queue': load_trace_queue,
+        'load_trace_sessions': load_trace_sessions,
         'http_get_seen': len(get_ids),
         'http_200_seen': http200,
         'get_seen_ratio': (len(get_ids) / requests_ok) if requests_ok else 0.0,

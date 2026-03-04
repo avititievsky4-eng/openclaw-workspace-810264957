@@ -150,6 +150,8 @@ def main():
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     requests_ok = load_stats['requests_ok']
     sessions_ok = load_stats.get('sessions_ok', 0)
+    load_trace_queue = load_stats.get('queue_file', '')
+    load_trace_sessions = load_stats.get('sessions_file', '')
 
     stop = True
     pth.join(timeout=5)
@@ -169,6 +171,8 @@ def main():
         'tool': 'rawsocket-http-tpacketv3',
         'requests_ok': requests_ok,
         'sessions_ok': sessions_ok,
+        'load_trace_queue': load_trace_queue,
+        'load_trace_sessions': load_trace_sessions,
         'enqueued_packets': enqueued,
         'handled_packets': handled,
         'unhandled_packets': max(0, enqueued - handled),

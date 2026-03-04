@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 import http.client
+import json
+import os
 import threading
 import time
+from collections import defaultdict
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -17,7 +21,7 @@ class BenchHandler(BaseHTTPRequestHandler):
         path = parsed.path
         q = parse_qs(parsed.query)
 
-        # New long-load model: one HTML page that references many images.
+        # Long-load model: one HTML page that references many images.
         if path == '/page':
             sid = q.get('sid', ['0'])[0]
             imgs = '\n'.join([f'<img src="/asset?sid={sid}&i={i}" />' for i in range(IMG_COUNT)])
@@ -67,16 +71,27 @@ def start_http_server(host: str, port: int):
     return server
 
 
-def generate_http_load(host: str, port: int, duration: float, workers: int = 4):
+def _default_trace_dir():
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.abspath(os.path.join(here, '..', 'results', 'http_session_traces'))
+
+
+def generate_http_load(host: str, port: int, duration: float, workers: int = 4, trace_dir: str | None = None):
     """
     Long-load generator:
     - open /page?sid=X
     - then fetch IMG_COUNT assets from that page (/asset?...)
 
+    Also records a queue-like trace of loaded files per session:
+    - queue_file: chronological request events (JSONL)
+    - sessions_file: per-session loaded file list + completion flag (JSON)
+
     Returns:
       {
         "requests_ok": <page+asset successful requests>,
-        "sessions_ok": <full page sessions completed>
+        "sessions_ok": <full page sessions completed>,
+        "queue_file": <path>,
+        "sessions_file": <path>
       }
     """
     stop_at = time.perf_counter() + duration
@@ -84,6 +99,23 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4):
     requests_ok = 0
     sessions_ok = 0
     lock = threading.Lock()
+
+    events = []
+    session_files = defaultdict(list)
+    session_done = {}
+
+    run_id = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    trace_root = trace_dir or _default_trace_dir()
+    os.makedirs(trace_root, exist_ok=True)
+    queue_file = os.path.join(trace_root, f'http_load_queue_{run_id}.jsonl')
+    sessions_file = os.path.join(trace_root, f'http_sessions_{run_id}.json')
+
+    def rec_event(sid: int, path: str, status: int):
+        ts = time.time()
+        with lock:
+            events.append({'ts': ts, 'sid': sid, 'path': path, 'status': status})
+            if status == 200:
+                session_files[str(sid)].append(path)
 
     def worker():
         nonlocal sid_counter, requests_ok, sessions_ok
@@ -93,21 +125,26 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4):
                 sid_counter += 1
 
             local_ok = 0
+            full_session = False
             try:
                 conn = http.client.HTTPConnection(host, port, timeout=2)
-                conn.request('GET', f'/page?sid={sid}')
+                page_path = f'/page?sid={sid}'
+                conn.request('GET', page_path)
                 resp = conn.getresponse()
                 _ = resp.read()
+                rec_event(sid, page_path, int(resp.status))
                 if resp.status == 200:
                     local_ok += 1
+                    full_session = True
                 conn.close()
 
-                full_session = (resp.status == 200)
                 for i in range(IMG_COUNT):
+                    asset_path = f'/asset?sid={sid}&i={i}'
                     conn = http.client.HTTPConnection(host, port, timeout=2)
-                    conn.request('GET', f'/asset?sid={sid}&i={i}')
+                    conn.request('GET', asset_path)
                     r2 = conn.getresponse()
                     _ = r2.read()
+                    rec_event(sid, asset_path, int(r2.status))
                     if r2.status == 200:
                         local_ok += 1
                     else:
@@ -118,9 +155,13 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4):
                     requests_ok += local_ok
                     if full_session and local_ok == (1 + IMG_COUNT):
                         sessions_ok += 1
+                        session_done[str(sid)] = True
+                    else:
+                        session_done[str(sid)] = False
             except Exception:
                 with lock:
                     requests_ok += local_ok
+                    session_done[str(sid)] = False
 
     threads = [threading.Thread(target=worker, daemon=True) for _ in range(workers)]
     for t in threads:
@@ -128,4 +169,31 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4):
     for t in threads:
         t.join()
 
-    return {'requests_ok': requests_ok, 'sessions_ok': sessions_ok}
+    # Persist queue trace (chronological)
+    events.sort(key=lambda e: e['ts'])
+    with open(queue_file, 'w', encoding='utf-8') as f:
+        for e in events:
+            f.write(json.dumps(e, ensure_ascii=False) + '\n')
+
+    sessions_payload = {
+        'img_count_expected': IMG_COUNT,
+        'sessions': [
+            {
+                'sid': sid,
+                'loaded_files': files,
+                'loaded_count': len(files),
+                'expected_count': 1 + IMG_COUNT,
+                'completed': bool(session_done.get(sid, False) and len(files) == (1 + IMG_COUNT)),
+            }
+            for sid, files in sorted(session_files.items(), key=lambda kv: int(kv[0]))
+        ],
+    }
+    with open(sessions_file, 'w', encoding='utf-8') as f:
+        json.dump(sessions_payload, f, ensure_ascii=False, indent=2)
+
+    return {
+        'requests_ok': requests_ok,
+        'sessions_ok': sessions_ok,
+        'queue_file': queue_file,
+        'sessions_file': sessions_file,
+    }

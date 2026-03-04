@@ -1,2 +1,4 @@
 .venv*
 results/*.json
+results/http_session_traces/*.json
+results/http_session_traces/*.jsonl

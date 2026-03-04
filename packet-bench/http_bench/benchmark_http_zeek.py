@@ -22,6 +22,8 @@ def main():
     load_stats=generate_http_load(args.host,args.port,args.duration,workers=args.workers)
     requests_ok=load_stats['requests_ok']
     sessions_ok=load_stats.get('sessions_ok',0)
+    load_trace_queue=load_stats.get('queue_file','')
+    load_trace_sessions=load_stats.get('sessions_file','')
     time.sleep(0.4)
     cap.send_signal(signal.SIGINT)
     try: cap.wait(timeout=6)
@@ -33,7 +35,9 @@ def main():
         except: pass
         server.shutdown()
         print(json.dumps({'tool':'zeek-http','requests_ok':requests_ok,
-        'sessions_ok':sessions_ok,'http_get_seen':0,'http_200_seen':0,'get_seen_ratio':0.0,'responses_seen_ratio':0.0,'unavailable':'zeek binary not found'}, indent=2))
+        'sessions_ok':sessions_ok,
+        'load_trace_queue':load_trace_queue,
+        'load_trace_sessions':load_trace_sessions,'http_get_seen':0,'http_200_seen':0,'get_seen_ratio':0.0,'responses_seen_ratio':0.0,'unavailable':'zeek binary not found'}, indent=2))
         return
 
     outdir=tempfile.mkdtemp(prefix='http_zeek_')
@@ -61,6 +65,8 @@ def main():
         'tool':'zeek-http',
         'requests_ok':requests_ok,
         'sessions_ok':sessions_ok,
+        'load_trace_queue':load_trace_queue,
+        'load_trace_sessions':load_trace_sessions,
         'http_get_seen':get_seen,
         'http_200_seen':rsp_seen,
         'get_seen_ratio':(get_seen/requests_ok if requests_ok else 0.0),
