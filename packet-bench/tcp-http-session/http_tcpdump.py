@@ -144,6 +144,7 @@ def main():
     line_q: queue.Queue = queue.Queue(maxsize=100000)
     ids = set()
     responses = 0
+    stream_buf = []
     dropped = 0
     enqueued = 0
     handled = 0
@@ -178,9 +179,7 @@ def main():
                 continue
             with lock:
                 handled += 1
-            m = GET_RE.search(line)
-            if m:
-                ids.add(m.group(1))
+            stream_buf.append(line)
             if 'HTTP/1.0 200 OK' in line or 'HTTP/1.1 200 OK' in line:
                 responses += 1
 
@@ -228,6 +227,11 @@ def main():
     tcp_reassembly_check = analyze_tcp_http_pcap_inline(track_pcap, server_port=args.port)
     t1 = time.perf_counter()
     server.shutdown()
+
+    # Parse accumulated payload text to detect all GET paths (not just per-line single match).
+    blob = ''.join(stream_buf)
+    for m in GET_RE.finditer(blob):
+        ids.add(m.group(1))
 
     # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions = build_sniff_session_map(ids)
