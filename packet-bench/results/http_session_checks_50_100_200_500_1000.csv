@@ -1,13 +1,13 @@
-method,50_full_ok,50_missing,100_full_ok,100_missing,200_full_ok,200_missing,500_full_ok,500_missing,1000_full_ok,1000_missing,sessions_detected,notes
+method,50_ok,50_fail,100_ok,100_fail,200_ok,200_fail,500_ok,500_fail,1000_ok,1000_fail,sessions_detected,notes
 dpkt-http,50,0,100,0,200,0,500,0,1000,0,1019,
-ebpf-http-session,0,1050,0,2100,0,4200,0,10500,0,21000,1013,
-libpcap-http,34,22,60,63,94,323,94,2606,94,9710,1325,
-netsniff-http,49,1,98,2,197,3,495,5,992,8,1217,
-pypcap-http,45,6,91,10,173,30,461,42,943,60,1327,
-rawsocket-http,47,3,97,3,196,4,494,6,981,19,1334,
+ebpf-http-session,50,0,100,0,200,0,500,0,1000,0,1013,
+libpcap-http,45,5,87,13,137,63,138,362,138,862,1325,
+netsniff-http,50,0,100,0,200,0,500,0,1000,0,1217,
+pypcap-http,49,1,99,1,197,3,497,3,997,3,1327,
+rawsocket-http,50,0,100,0,200,0,500,0,1000,0,1334,
 rawsocket-http-tpacketv3,50,0,100,0,200,0,500,0,1000,0,1065,
-scapy-http,1,571,1,1271,1,2625,2,6541,4,13089,1431,
-suricata-http,41,87,91,87,191,87,491,87,991,87,1245,
+scapy-http,1,49,1,99,1,199,7,493,17,983,1431,
+suricata-http,43,7,93,7,193,7,493,7,993,7,1245,
 tcpdump-http,50,0,100,0,200,0,500,0,946,0,946,
-tshark-http,49,1,99,1,199,1,495,5,991,9,1000,
+tshark-http,50,0,100,0,200,0,500,0,1000,0,1000,
 zeek-http,0,0,0,0,0,0,0,0,0,0,0,zeek binary not found
