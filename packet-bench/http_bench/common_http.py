@@ -101,6 +101,27 @@ def build_sniff_session_map(paths):
     return payload
 
 
+def load_session_files_map(sessions_file: str):
+    """Load per-session file map from generator sessions trace JSON."""
+    try:
+        with open(sessions_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+
+    out = {}
+    for s in data.get('sessions', []):
+        sid = str(s.get('sid'))
+        files = s.get('loaded_files', []) or []
+        uniq = sorted(set(files))
+        out[sid] = {
+            'files': uniq,
+            'loaded_count': len(uniq),
+            'min20_ok': len(uniq) >= 20,
+        }
+    return out
+
+
 def generate_http_load(host: str, port: int, duration: float, workers: int = 4, trace_dir: str | None = None):
     """
     Long-load generator:

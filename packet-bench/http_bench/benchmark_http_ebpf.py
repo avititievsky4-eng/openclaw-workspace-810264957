@@ -9,7 +9,7 @@ from pathlib import Path
 from bcc import BPF  # type: ignore
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from common_http import start_http_server, generate_http_load, build_sniff_session_map
+from common_http import start_http_server, generate_http_load, load_session_files_map
 
 
 def main():
@@ -59,6 +59,7 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
     sessions_ok = load_stats.get('sessions_ok', 0)
     load_trace_queue = load_stats.get('queue_file', '')
     load_trace_sessions = load_stats.get('sessions_file', '')
+    sniff_sessions = load_session_files_map(load_trace_sessions)
     time.sleep(0.2)
 
     sessions = 0
@@ -81,6 +82,8 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
         'unhandled_packets': 0,
         'capture_drop_queue': 0,
         'http_sessions_established': sessions,
+        'sniff_session_files': sniff_sessions,
+        'sniff_sessions_detected': len(sniff_sessions),
         'session_to_request_ratio': (sessions / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,
         'note': 'Python BCC TRACEPOINT_PROBE; no external process.',
