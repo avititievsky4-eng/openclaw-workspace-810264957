@@ -1,0 +1,5 @@
+# HTTP all-methods session-file check (target: first 100 sessions)
+
+| Method | sessions_checked | full_ok_sessions | missing_files_total | requests_ok | sessions_ok | sniff_sessions_detected | Notes |
+|---|---:|---:|---:|---:|---:|---:|---|
+| dpkt-http | 100 | 100 | 0 | 2436 | 116 | 116 |  |\n| ebpf-http-session | 100 | 0 | 2100 | 2436 | 116 | 116 |  |\n| libpcap-http | 100 | 71 | 165 | 2268 | 108 | 108 |  |\n| netsniff-http | 100 | 99 | 1 | 2478 | 118 | 118 |  |\n| pypcap-http | 100 | 100 | 0 | 2247 | 107 | 107 |  |\n| rawsocket-http | 98 | 98 | 0 | 2058 | 98 | 98 |  |\n| rawsocket-http-tpacketv3 | 100 | 100 | 0 | 2373 | 113 | 113 |  |\n| scapy-http | 100 | 100 | 0 | 2562 | 122 | 122 |  |\n| suricata-http | 100 | 100 | 0 | 2436 | 116 | 112 |  |\n| tcpdump-http | 100 | 100 | 0 | 2373 | 113 | 113 |  |\n| tshark-http | 100 | 100 | 0 | 2436 | 116 | 116 |  |\n| zeek-http | 0 | 0 | 0 | 2436 | 116 | 0 | zeek binary not found |\n
