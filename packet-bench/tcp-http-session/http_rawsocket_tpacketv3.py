@@ -186,6 +186,7 @@ def main():
     pkt_q: queue.Queue = queue.Queue(maxsize=50000)
     ids = set()
     responses = 0
+    req_frags = {}
     dropped = 0
     enqueued = 0
     handled = 0
@@ -242,14 +243,31 @@ def main():
                 continue
             with lock:
                 handled += 1
-            payload = parse_ipv4_tcp_http_payload(frame, args.port)
-            if payload is None:
-                continue
-            m = GET_RE.search(payload)
-            if m:
-                ids.add(m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1))
-            if b'HTTP/1.' in payload and b' 200 ' in payload:
-                responses += 1
+
+            # Reassemble client->server request streams by seq.
+            if len(frame) >= 14 + 20:
+                try:
+                    eth_type = int.from_bytes(frame[12:14], 'big')
+                    if eth_type == 0x0800:
+                        ip_off = 14
+                        ihl = (frame[ip_off] & 0x0F) * 4
+                        if len(frame) >= ip_off + ihl + 20 and frame[ip_off + 9] == 6:
+                            src_ip = frame[ip_off + 12:ip_off + 16]
+                            dst_ip = frame[ip_off + 16:ip_off + 20]
+                            tcp_off = ip_off + ihl
+                            sport = int.from_bytes(frame[tcp_off:tcp_off + 2], 'big')
+                            dport = int.from_bytes(frame[tcp_off + 2:tcp_off + 4], 'big')
+                            seq = int.from_bytes(frame[tcp_off + 4:tcp_off + 8], 'big')
+                            data_off = ((frame[tcp_off + 12] >> 4) & 0xF) * 4
+                            pay_off = tcp_off + data_off
+                            payload = frame[pay_off:] if pay_off <= len(frame) else b''
+                            if dport == args.port and payload:
+                                flow = (src_ip, sport, dst_ip, dport)
+                                req_frags.setdefault(flow, {})[seq] = payload
+                                if b'HTTP/1.' in payload and b' 200 ' in payload:
+                                    responses += 1
+                except Exception:
+                    pass
 
     # Start end-to-end timer for this benchmark method.
     t0 = time.perf_counter()
@@ -282,6 +300,17 @@ def main():
     t1 = time.perf_counter()
 
     mm.close(); s.close(); server.shutdown()
+
+    # Parse reassembled requests for GET paths.
+    def rebuild(frags):
+        out=b''
+        for seq in sorted(frags.keys()):
+            out += frags[seq]
+        return out
+    for fr in req_frags.values():
+        req = rebuild(fr)
+        for m in GET_RE.finditer(req):
+            ids.add(m.group(1).decode('ascii', errors='ignore'))
 
     # Map sniffed paths to per-session file lists + min20 checks.
     sniff_sessions = build_sniff_session_map(ids)
