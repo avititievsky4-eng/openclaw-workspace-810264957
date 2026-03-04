@@ -46,6 +46,8 @@ def main():
 
     out_csv = os.path.join(root, 'results', 'http_tcp_sessions_stress100.csv')
     out_md = os.path.join(root, 'results', 'http_tcp_sessions_stress100.md')
+    per_method_dir = os.path.join(root, 'results', 'http_tcp_sessions_stress100_by_method')
+    os.makedirs(per_method_dir, exist_ok=True)
 
     with open(out_csv, 'w', newline='') as f:
         w = csv.DictWriter(
@@ -64,8 +66,23 @@ def main():
                 f"| {r['method']} | {r['sessions_detected']} | {r['sessions_checked']} | {r['tcp_sessions_success']} | {r['success_rate']:.2f}% | {r['notes']} |\n"
             )
 
+    for r in rows:
+        safe = r['method'].replace('/', '_').replace(' ', '_')
+        method_json = os.path.join(per_method_dir, f"{safe}.json")
+        method_md = os.path.join(per_method_dir, f"{safe}.md")
+        with open(method_json, 'w') as f:
+            json.dump(r, f, indent=2)
+        with open(method_md, 'w') as f:
+            f.write(f"# {r['method']} - TCP session stress (first {args.limit} sessions)\n\n")
+            f.write(f"- sessions_detected: {r['sessions_detected']}\n")
+            f.write(f"- sessions_checked: {r['sessions_checked']}\n")
+            f.write(f"- tcp_sessions_success: {r['tcp_sessions_success']}\n")
+            f.write(f"- success_rate: {r['success_rate']:.2f}%\n")
+            f.write(f"- notes: {r['notes']}\n")
+
     print('wrote', out_csv)
     print('wrote', out_md)
+    print('wrote per-method files in', per_method_dir)
 
 
 if __name__ == '__main__':

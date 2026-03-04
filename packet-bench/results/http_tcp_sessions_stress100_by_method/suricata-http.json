@@ -1,0 +1,8 @@
+{
+  "method": "suricata-http",
+  "sessions_detected": 41,
+  "sessions_checked": 41,
+  "tcp_sessions_success": 40,
+  "success_rate": 97.5609756097561,
+  "notes": ""
+}

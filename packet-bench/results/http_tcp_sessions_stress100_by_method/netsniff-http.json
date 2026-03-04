@@ -1,0 +1,8 @@
+{
+  "method": "netsniff-http",
+  "sessions_detected": 44,
+  "sessions_checked": 44,
+  "tcp_sessions_success": 44,
+  "success_rate": 100.0,
+  "notes": ""
+}
