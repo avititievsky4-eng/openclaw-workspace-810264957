@@ -43,10 +43,14 @@ LIBPCAP_JSON=$(run_json libpcap "$BASE/libpcap_project/.venv312/bin/python" "$BA
 PYPCAP_JSON=$(run_json pypcap "$BASE/pypcap_project/.venv311/bin/python" "$BASE/sctp_bench/benchmark_sctp_pypcap.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS" --generator "$GENERATOR" --scapy-python "$SCAPY_PY")
 RAWSOCK_JSON=$(run_json rawsocket python3 "$BASE/sctp_bench/benchmark_sctp_rawsocket.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS" --generator "$GENERATOR" --scapy-python "$SCAPY_PY")
 EBPF_JSON=$(run_json ebpf /usr/bin/python3 "$BASE/sctp_bench/benchmark_sctp_ebpf.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS" --generator "$GENERATOR" --scapy-python "$SCAPY_PY")
+TSHARK_JSON=$(run_json tshark python3 "$BASE/sctp_bench/benchmark_sctp_tshark.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS" --generator "$GENERATOR" --scapy-python "$SCAPY_PY")
+ZEEK_JSON=$(run_json zeek python3 "$BASE/sctp_bench/benchmark_sctp_zeek.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS" --generator "$GENERATOR" --scapy-python "$SCAPY_PY")
+SURI_JSON=$(run_json suricata python3 "$BASE/sctp_bench/benchmark_sctp_suricata.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS" --generator "$GENERATOR" --scapy-python "$SCAPY_PY")
+NETSNIFF_JSON=$(run_json netsniff python3 "$BASE/sctp_bench/benchmark_sctp_netsniff.py" --iface "$IFACE" --dst "$DST" --duration "$DURATION" --payload "$PAYLOAD" --gen-threads "$GEN_THREADS" --gen-pps "$GEN_PPS" --generator "$GENERATOR" --scapy-python "$SCAPY_PY")
 
-SCAPY_JSON="$SCAPY_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" PYPCAP_JSON="$PYPCAP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" EBPF_JSON="$EBPF_JSON" python3 - <<'PY'
+SCAPY_JSON="$SCAPY_JSON" TCPDUMP_JSON="$TCPDUMP_JSON" LIBPCAP_JSON="$LIBPCAP_JSON" PYPCAP_JSON="$PYPCAP_JSON" RAWSOCK_JSON="$RAWSOCK_JSON" EBPF_JSON="$EBPF_JSON" TSHARK_JSON="$TSHARK_JSON" ZEEK_JSON="$ZEEK_JSON" SURI_JSON="$SURI_JSON" NETSNIFF_JSON="$NETSNIFF_JSON" python3 - <<'PY'
 import json, os
-files=[os.environ['SCAPY_JSON'], os.environ['TCPDUMP_JSON'], os.environ['LIBPCAP_JSON'], os.environ['PYPCAP_JSON'], os.environ['RAWSOCK_JSON'], os.environ['EBPF_JSON']]
+files=[os.environ['SCAPY_JSON'], os.environ['TCPDUMP_JSON'], os.environ['LIBPCAP_JSON'], os.environ['PYPCAP_JSON'], os.environ['RAWSOCK_JSON'], os.environ['EBPF_JSON'], os.environ['TSHARK_JSON'], os.environ['ZEEK_JSON'], os.environ['SURI_JSON'], os.environ['NETSNIFF_JSON']]
 rows=[json.load(open(p)) for p in files]
 for r in rows:
     r['_score'] = r.get('capture_ratio_normalized', r['capture_ratio'])
