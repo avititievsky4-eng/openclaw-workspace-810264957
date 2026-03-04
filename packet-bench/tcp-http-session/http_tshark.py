@@ -5,7 +5,7 @@ Captures pcap and uses tshark filters/fields to extract GET URIs and per-session
 
 This benchmark uses the shared long-load generator from common_http.py.
 """
-import argparse, json, os, signal, subprocess, sys, time, tempfile
+import argparse, json, os, re, signal, subprocess, sys, time, tempfile
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -150,14 +150,47 @@ def main():
         # Hard-stop fallback in case capture tool does not terminate on SIGINT.
         cap.kill(); cap.wait(timeout=3)
 
-    get_out=subprocess.run(['tshark','-r',pcap,'-Y',f'http.request.method == "GET" && tcp.dstport == {args.port}','-T','fields','-e','frame.number'],capture_output=True,text=True)
-    uri_out=subprocess.run(['tshark','-r',pcap,'-Y',f'http.request.method == "GET" && tcp.dstport == {args.port}','-T','fields','-e','http.request.uri'],capture_output=True,text=True)
-    rsp_out=subprocess.run(['tshark','-r',pcap,'-Y',f'http.response.code == 200 && tcp.srcport == {args.port}','-T','fields','-e','frame.number'],capture_output=True,text=True)
-    get_seen=len([x for x in (get_out.stdout or '').splitlines() if x.strip()])
-    rsp_seen=len([x for x in (rsp_out.stdout or '').splitlines() if x.strip()])
-    uri_paths=[x.strip().lstrip('/') for x in (uri_out.stdout or '').splitlines() if x.strip()]
+    # Native parse of captured pcap for request reassembly + GET extraction.
+    req_frags={}; rsp_seen=0; ids=set()
+    import struct
+    with open(pcap,'rb') as f:
+        gh=f.read(24)
+        magic=gh[:4] if len(gh)>=4 else b''
+        le = magic in (b'\xd4\xc3\xb2\xa1', b'\x4d\x3c\xb2\xa1')
+        ph_fmt = ('<' if le else '>') + 'IIII'
+        while True:
+            ph=f.read(16)
+            if len(ph)<16: break
+            _ts_sec,_ts_usec,incl_len,_orig_len=struct.unpack(ph_fmt,ph)
+            pkt=f.read(incl_len)
+            if len(pkt)<14+20: continue
+            if int.from_bytes(pkt[12:14],'big')!=0x0800: continue
+            ip_off=14; ihl=(pkt[ip_off]&0x0F)*4
+            if len(pkt)<ip_off+ihl+20 or pkt[ip_off+9]!=6: continue
+            src_ip=pkt[ip_off+12:ip_off+16]; dst_ip=pkt[ip_off+16:ip_off+20]
+            tcp_off=ip_off+ihl
+            sport=int.from_bytes(pkt[tcp_off:tcp_off+2],'big'); dport=int.from_bytes(pkt[tcp_off+2:tcp_off+4],'big')
+            seq=int.from_bytes(pkt[tcp_off+4:tcp_off+8],'big')
+            data_off=((pkt[tcp_off+12]>>4)&0xF)*4
+            pay_off=tcp_off+data_off
+            payload=pkt[pay_off:] if pay_off<=len(pkt) else b''
+            if dport==args.port and payload:
+                flow=(src_ip,sport,dst_ip,dport)
+                req_frags.setdefault(flow,{})[seq]=payload
+            elif sport==args.port and payload and (b'HTTP/1.' in payload and b' 200 ' in payload):
+                rsp_seen += 1
+
+    def rebuild(frags):
+        out=b''
+        for seq in sorted(frags.keys()): out += frags[seq]
+        return out
+    for fr in req_frags.values():
+        req=rebuild(fr)
+        for m in re.finditer(br'GET /(page\?sid=\d+|asset\?sid=\d+&i=\d+)', req):
+            ids.add(m.group(1).decode('ascii', errors='ignore'))
+    get_seen=len(ids)
     # Map sniffed paths to per-session file lists + min20 checks.
-    sniff_sessions=build_sniff_session_map(uri_paths)
+    sniff_sessions=build_sniff_session_map(ids)
 
     try: os.remove(pcap)
     except: pass
