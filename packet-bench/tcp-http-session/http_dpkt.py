@@ -22,34 +22,75 @@ sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load, build_sniff_session_map
 
 
-def _run_tshark(cmd):
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    return p.stdout or ''
-
 def analyze_tcp_http_pcap_inline(pcap_path: str, server_port: int = 18080) -> dict:
-    """Inline TCP handshake + HTTP reassembly summary (no external Python file import)."""
+    """Native DPKT parse: handshake counters + stream reassembly."""
     try:
-        syn = _run_tshark(['tshark','-r',pcap_path,'-Y',f'tcp.dstport == {server_port} && tcp.flags.syn == 1 && tcp.flags.ack == 0','-T','fields','-e','frame.number'])
-        synack = _run_tshark(['tshark','-r',pcap_path,'-Y',f'tcp.srcport == {server_port} && tcp.flags.syn == 1 && tcp.flags.ack == 1','-T','fields','-e','frame.number'])
-        ack = _run_tshark(['tshark','-r',pcap_path,'-Y',f'tcp.dstport == {server_port} && tcp.flags.syn == 0 && tcp.flags.ack == 1','-T','fields','-e','frame.number'])
+        syn_n = synack_n = ack_n = 0
+        c2s = defaultdict(dict)
+        s2c = defaultdict(dict)
 
-        syn_n = len([x for x in syn.splitlines() if x.strip()])
-        synack_n = len([x for x in synack.splitlines() if x.strip()])
-        ack_n = len([x for x in ack.splitlines() if x.strip()])
+        with open(pcap_path, 'rb') as f:
+            pcap = dpkt.pcap.Reader(f)
+            for _ts, buf in pcap:
+                try:
+                    eth = dpkt.ethernet.Ethernet(buf)
+                    if not isinstance(eth.data, dpkt.ip.IP):
+                        continue
+                    ip = eth.data
+                    if not isinstance(ip.data, dpkt.tcp.TCP):
+                        continue
+                    tcp = ip.data
+                except Exception:
+                    continue
 
-        get_out = _run_tshark(['tshark','-r',pcap_path,'-Y',f'http.request.method == "GET" && tcp.dstport == {server_port}','-T','fields','-e','tcp.stream'])
-        ok_out = _run_tshark(['tshark','-r',pcap_path,'-Y',f'http.response.code == 200 && tcp.srcport == {server_port}','-T','fields','-e','tcp.stream'])
+                if tcp.dport == server_port:
+                    flow = (ip.src, tcp.sport, ip.dst, tcp.dport)
+                    dir_c2s = True
+                elif tcp.sport == server_port:
+                    flow = (ip.dst, tcp.dport, ip.src, tcp.sport)
+                    dir_c2s = False
+                else:
+                    continue
 
-        get_streams = {x.strip() for x in get_out.splitlines() if x.strip()}
-        ok_streams = {x.strip() for x in ok_out.splitlines() if x.strip()}
+                syn = bool(tcp.flags & dpkt.tcp.TH_SYN)
+                ack = bool(tcp.flags & dpkt.tcp.TH_ACK)
+                if dir_c2s and syn and not ack:
+                    syn_n += 1
+                elif (not dir_c2s) and syn and ack:
+                    synack_n += 1
+                elif dir_c2s and ack and not syn:
+                    ack_n += 1
+
+                payload = bytes(tcp.data or b'')
+                if payload:
+                    if dir_c2s:
+                        c2s[flow][tcp.seq] = payload
+                    else:
+                        s2c[flow][tcp.seq] = payload
+
+        def rebuild(frags):
+            out = b''
+            for seq in sorted(frags.keys()):
+                out += frags[seq]
+            return out
+
+        get_flows = 0
+        ok_flows = 0
+        for flow in (set(c2s.keys()) | set(s2c.keys())):
+            req = rebuild(c2s.get(flow, {}))
+            rsp = rebuild(s2c.get(flow, {}))
+            if b'GET /' in req and b'HTTP/1.' in req:
+                get_flows += 1
+            if (b'HTTP/1.0 200' in rsp) or (b'HTTP/1.1 200' in rsp):
+                ok_flows += 1
 
         return {
             'tcp_syn_packets': syn_n,
             'tcp_synack_packets': synack_n,
             'tcp_ack_packets': ack_n,
             'tcp_handshake_estimate': min(syn_n, synack_n, ack_n),
-            'http_get_streams_after_reassembly': len(get_streams),
-            'http_200_streams_after_reassembly': len(ok_streams),
+            'http_get_flows_after_reassembly': get_flows,
+            'http_200_flows_after_reassembly': ok_flows,
         }
     except Exception as e:
         return {'error': str(e)}
