@@ -209,7 +209,8 @@ def main():
     for c in consumers:
         c.start()
 
-    time.sleep(0.25)
+    # Give capture threads more head-start to avoid missing earliest sessions.
+    time.sleep(1.0)
     # Generator simulates long page-load sessions (page + 20 assets).
     load_stats = generate_http_load(args.host, args.port, args.duration, workers=args.workers)
     # Generate long-load sessions: page + 20 assets per session.
