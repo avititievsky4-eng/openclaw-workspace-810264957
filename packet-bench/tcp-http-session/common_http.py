@@ -17,6 +17,7 @@ IMG_BYTES = b'\x89PNG\r\n\x1a\n' + (b'X' * 8192)
 
 
 class BenchHandler(BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -185,22 +186,22 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4, 
 
             local_ok = 0
             full_session = False
+            conn = None
             try:
+                # Keep one TCP connection per session (page + all assets).
                 conn = http.client.HTTPConnection(host, port, timeout=2)
                 page_path = f'/page?sid={sid}'
-                conn.request('GET', page_path)
+                conn.request('GET', page_path, headers={'Connection': 'keep-alive'})
                 resp = conn.getresponse()
                 _ = resp.read()
                 rec_event(sid, page_path, int(resp.status))
                 if resp.status == 200:
                     local_ok += 1
                     full_session = True
-                conn.close()
 
                 for i in range(IMG_COUNT):
                     asset_path = f'/asset?sid={sid}&i={i}'
-                    conn = http.client.HTTPConnection(host, port, timeout=2)
-                    conn.request('GET', asset_path)
+                    conn.request('GET', asset_path, headers={'Connection': 'keep-alive'})
                     r2 = conn.getresponse()
                     _ = r2.read()
                     rec_event(sid, asset_path, int(r2.status))
@@ -208,7 +209,6 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4, 
                         local_ok += 1
                     else:
                         full_session = False
-                    conn.close()
 
                 with lock:
                     requests_ok += local_ok
@@ -221,6 +221,12 @@ def generate_http_load(host: str, port: int, duration: float, workers: int = 4, 
                 with lock:
                     requests_ok += local_ok
                     session_done[str(sid)] = False
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
 
     threads = [threading.Thread(target=worker, daemon=True) for _ in range(workers)]
     for t in threads:
