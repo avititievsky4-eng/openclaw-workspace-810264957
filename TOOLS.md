@@ -36,14 +36,19 @@ Things like:
 - Service: `xrdp` + `xrdp-sesman`
 - Dedicated RDP user: `avi-rdp`
 - Session launcher: `/etc/xrdp/startwm.sh` loads `~/.xprofile` and `~/.Xresources`
-- Working scale values (for readable UI on high-res clients):
+- Current working values (as of now):
   - `GDK_SCALE=2`
-  - `QT_SCALE_FACTOR=1.5`
-  - `XCURSOR_SIZE=48`
-  - `Xft.dpi: 168`
+  - `GDK_DPI_SCALE=1.0`
+  - `QT_SCALE_FACTOR=0.5`
+  - `XCURSOR_SIZE=46`
+- Terminal defaults:
+  - `x-terminal-emulator` → `terminator`
+  - XFCE terminal font: `DejaVu Sans Mono 16`
+  - XTerm fallback: `DejaVu Sans Mono 18`, geometry `140x42`
 - User files used:
   - `/home/avi-rdp/.xprofile`
   - `/home/avi-rdp/.Xresources`
+  - `/home/avi-rdp/.config/xfce4/terminal/terminalrc`
 
 ## Why Separate?
 
