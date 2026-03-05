@@ -1,8 +1,0 @@
-{
-  "method": "zeek-http",
-  "sessions_detected": 0,
-  "sessions_checked": 0,
-  "tcp_sessions_success_min2asset_min1asset": 0,
-  "success_rate": 0.0,
-  "notes": "zeek binary not found"
-}

@@ -1,8 +1,0 @@
-{
-  "method": "pypcap-http",
-  "sessions_detected": 44,
-  "sessions_checked": 44,
-  "tcp_sessions_success_min2asset_min1asset": 44,
-  "success_rate": 100.0,
-  "notes": ""
-}
