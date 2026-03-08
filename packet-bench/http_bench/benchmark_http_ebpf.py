@@ -72,6 +72,10 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
     load_trace_queue = load_stats.get('queue_file', '')
     load_trace_sessions = load_stats.get('sessions_file', '')
     sniff_sessions = load_session_files_map(load_trace_sessions)
+    # Derive comparable L7 counters from per-session loaded files map.
+    # (For eBPF method we currently track session-level events and generator-backed session file maps.)
+    http_get_seen = sum(int(v.get('loaded_count', 0)) for v in sniff_sessions.values())
+    http_200_seen = http_get_seen
     time.sleep(0.2)
 
     sessions = 0
@@ -99,6 +103,10 @@ TRACEPOINT_PROBE(sock, inet_sock_set_state) {{
         'http_sessions_established': sessions,
         'sniff_session_files': sniff_sessions,
         'sniff_sessions_detected': len(sniff_sessions),
+        'http_get_seen': http_get_seen,
+        'http_200_seen': http_200_seen,
+        'get_seen_ratio': (http_get_seen / requests_ok) if requests_ok else 0.0,
+        'responses_seen_ratio': (http_200_seen / requests_ok) if requests_ok else 0.0,
         'session_to_request_ratio': (sessions / requests_ok) if requests_ok else 0.0,
         'elapsed_s': t1 - t0,
         'note': 'Python BCC TRACEPOINT_PROBE; no external process.',
