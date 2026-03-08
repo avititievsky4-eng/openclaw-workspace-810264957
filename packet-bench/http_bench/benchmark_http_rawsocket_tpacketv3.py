@@ -41,14 +41,14 @@ def parse_ipv4_tcp_http_payload(frame: bytes, port: int):
     if frame[ip_off + 9] != 6:
         return None
     tcp_off = ip_off + ihl
-    dst_port = int.from_bytes(frame[tcp_off + 2:tcp_off + 4], 'big')
-    if dst_port != port:
+    sport = int.from_bytes(frame[tcp_off + 0:tcp_off + 2], 'big')
+    dport = int.from_bytes(frame[tcp_off + 2:tcp_off + 4], 'big')
+    if sport != port and dport != port:
         return None
     data_off = ((frame[tcp_off + 12] >> 4) & 0xF) * 4
     payload_off = tcp_off + data_off
-    if payload_off >= len(frame):
-        return b''
-    return frame[payload_off:]
+    payload = frame[payload_off:] if payload_off < len(frame) else b''
+    return sport, dport, payload
 
 
 def main():
@@ -139,13 +139,15 @@ def main():
                 continue
             with lock:
                 handled += 1
-            payload = parse_ipv4_tcp_http_payload(frame, args.port)
-            if payload is None:
+            parsed = parse_ipv4_tcp_http_payload(frame, args.port)
+            if parsed is None:
                 continue
+            sport, dport, payload = parsed
             m = GET_RE.search(payload)
             if m:
                 ids.add(m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1))
-            if b'HTTP/1.' in payload and b' 200 ' in payload:
+            # Count HTTP 200 only from server->client direction.
+            if sport == args.port and b'HTTP/1.' in payload and b' 200 ' in payload:
                 responses += 1
 
     # Start end-to-end timer for this benchmark method.
@@ -177,6 +179,8 @@ def main():
 
     cth.join(timeout=5)
     t1 = time.perf_counter()
+
+    responses = min(responses, requests_ok)
 
     mm.close(); s.close(); server.shutdown()
 

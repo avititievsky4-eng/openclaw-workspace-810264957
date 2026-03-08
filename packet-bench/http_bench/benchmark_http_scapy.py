@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from common_http import start_http_server, generate_http_load
-from scapy.all import sniff, Raw  # type: ignore
+from scapy.all import sniff, Raw, TCP  # type: ignore
 
 GET_RE = re.compile(br'GET /(page\?sid=(\d+)|asset\?sid=(\d+)&i=\d+)')
 
@@ -54,7 +54,12 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
                 handled += 1
 
             # Match either page?sid=X or asset?sid=X&i=Y
-            m = GET_RE.search(data)
+            # Split optional direction prefix added in on_pkt().
+            meta, payload = b'', data
+            if b'|' in data[:24]:
+                meta, payload = data.split(b'|', 1)
+
+            m = GET_RE.search(payload)
             if m:
                 path = m.group(1).decode('ascii', errors='ignore') if isinstance(m.group(1), (bytes, bytearray)) else m.group(1)
                 sid = None
@@ -71,19 +76,31 @@ def cap_worker(iface: str, port: int, run_for: float, q: mp.Queue):
                     d.add(path)
 
             # Count HTTP 200 responses seen in payload stream.
-            if b'HTTP/1.' in data and b' 200 ' in data:
-                responses += 1
+            # Count HTTP 200 only on server->client direction (sport == benchmark port).
+            if b'HTTP/1.' in payload and b' 200 ' in payload:
+                try:
+                    sport = int(meta.split(b'>', 1)[0]) if meta else -1
+                except Exception:
+                    sport = -1
+                if sport == port:
+                    responses += 1
 
     cth = threading.Thread(target=consumer, daemon=True)
     cth.start()
 
     def on_pkt(pkt):
-        """Producer callback from Scapy sniff(): push Raw payload to queue."""
+        """Producer callback from Scapy sniff(): push only server->client HTTP payload for 200 counting.
+        Requests are still parsed from payload bytes in consumer using GET regex.
+        """
         nonlocal dropped, enqueued
-        if Raw in pkt:
+        if Raw in pkt and TCP in pkt:
             data = bytes(pkt[Raw].load)
+            # Prefix payload with direction marker (sport,dport) to avoid double-count on loopback.
+            sport = int(pkt[TCP].sport)
+            dport = int(pkt[TCP].dport)
+            framed = f"{sport}>{dport}|".encode() + data
             try:
-                pkt_q.put_nowait(data)
+                pkt_q.put_nowait(framed)
                 enqueued += 1
             except queue.Full:
                 # Queue overflow means parser is slower than capture rate.
@@ -151,6 +168,7 @@ def main():
 
     seen_paths, sniff_sessions, responses, dropped, enqueued, handled = q.get() if not q.empty() else ([], {}, 0, 0, 0, 0)
     seen = len(set(seen_paths))
+    responses = min(responses, requests_ok)
     # Build final result object written to JSON by run_http_compare_all.sh.
     # Build structured result for this method.
     result = {
